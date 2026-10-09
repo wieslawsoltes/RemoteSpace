@@ -12,7 +12,7 @@ using RemoteSpace.Security;
 namespace RemoteSpace.Client;
 
 /// <summary>Single-use RDP session with one receive loop, serialized writes, cancellation and bounded packet decoding.</summary>
-public sealed class RdpSession : IRemoteSession, IRemoteCursorSource
+public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
 {
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
@@ -20,6 +20,7 @@ public sealed class RdpSession : IRemoteSession, IRemoteCursorSource
     private readonly ChannelAssembler _clipboardFragments = new();
     private readonly FastPathAssembler _fastPath = new();
     private readonly CursorDecoder _cursors = new();
+    private RemoteSpace.Licensing.LicenseClient? _licensing;
     private TcpClient? _tcp;
     private Stream? _stream;
     private ConnectionOptions? _options;
@@ -42,93 +43,6 @@ public sealed class RdpSession : IRemoteSession, IRemoteCursorSource
     private void SetState(SessionState state) { State = state; StateChanged?.Invoke(state); }
     private void Log(string stage, string message) => Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, stage, message));
 
-    public async Task RunAsync(ConnectionOptions options, SessionCredentials credentials, CancellationToken cancellationToken = default)
-    {
-        options.Validate();
-        if (Interlocked.Exchange(ref _started, 1) != 0) throw new InvalidOperationException("Create a new session object to reconnect.");
-        _options = options;
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stop.Token);
-        using var handshake = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        handshake.CancelAfter(options.ConnectTimeout);
-        try
-        {
-            SetState(SessionState.Connecting); _tcp = new TcpClient { NoDelay = true };
-            await _tcp.ConnectAsync(options.Host, options.Port, handshake.Token); _stream = _tcp.GetStream();
-            SetState(SessionState.Negotiating);
-            var requested = options.Security == SecurityMode.NetworkLevelAuthentication ? SecurityProtocols.Hybrid : SecurityProtocols.Tls;
-            await WriteAsync(Negotiation.Request(requested), handshake.Token);
-            var confirm = await Framing.ReadAsync(_stream, handshake.Token);
-            if (confirm.IsFastPath) throw new RdpProtocolException("Fast-path packet during security negotiation.");
-            var selected = Negotiation.ParseConfirm(confirm.Payload, requested);
-            SetState(SessionState.Securing);
-            var tls = new SslStream(_stream, false, (_, certificate, _, errors) =>
-            {
-                bool valid = CertificatePolicy.Validate(certificate, errors, options.CertificateSha256, DateTimeOffset.UtcNow);
-                if (!valid && certificate is not null) Log("Certificate", "Certificate validation failed. Verify its SHA-256 fingerprint out of band: " + certificate.GetCertHashString(HashAlgorithmName.SHA256));
-                return valid;
-            });
-            _stream = tls;
-            await tls.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
-            {
-                TargetHost = options.Host, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                CertificateRevocationCheckMode = X509RevocationMode.Online, AllowTlsResume = false
-            }, handshake.Token);
-            Log("TLS", $"Authenticated {tls.SslProtocol}; cipher {tls.NegotiatedCipherSuite}.");
-            if (selected.Protocol == SecurityProtocols.Hybrid)
-            {
-                SetState(SessionState.Authenticating);
-                await CredSsp.AuthenticateAsync(tls, options.Host, credentials, handshake.Token);
-                Log("CredSSP", "Modern channel binding verified; credentials delegated over the protected channel.");
-            }
-            SetState(SessionState.Establishing);
-            await WriteMcsAsync(Mcs.ConnectInitial(options, selected.Protocol), handshake.Token);
-            var settings = Mcs.ParseConnectResponse(await ReadMcsAsync(handshake.Token), options.RedirectClipboard ? 1 : 0);
-            if (settings.RequestedProtocols is { } protocols && protocols != (uint)requested) throw new RdpProtocolException("Server's security negotiation echo did not match.");
-            _global = settings.GlobalChannel; _clipboardChannel = settings.StaticChannels.FirstOrDefault();
-            await WriteMcsAsync(Mcs.ErectDomain(), handshake.Token);
-            await WriteMcsAsync(Mcs.AttachUser(), handshake.Token);
-            _user = Mcs.ParseAttachConfirm(await ReadMcsAsync(handshake.Token));
-            foreach (ushort channel in new[] { _user, _global }.Concat(settings.StaticChannels).Distinct())
-            {
-                await WriteMcsAsync(Mcs.Join(_user, channel), handshake.Token);
-                Mcs.ParseJoinConfirm(await ReadMcsAsync(handshake.Token), _user, channel);
-            }
-            byte[] info = Activation.ClientInfo(options, credentials, selected.Protocol == SecurityProtocols.Hybrid);
-            try { await SendChannelAsync(_global, info, handshake.Token); }
-            finally { CryptographicOperations.ZeroMemory(info); }
-            while (!lifetime.IsCancellationRequested)
-            {
-                CancellationToken ct = State == SessionState.Active ? lifetime.Token : handshake.Token;
-                var packet = await Framing.ReadAsync(_stream, ct); ReceivedBytes += packet.Payload.Length;
-                if (packet.IsFastPath) _fastPath.Accept(packet.Payload, FastUpdate);
-                else
-                {
-                    byte[] mcs = Framing.UnwrapData(packet.Payload);
-                    if (mcs.Length > 0 && (mcs[0] & 0xfc) == 0x20) { Log("Session", "Server disconnected the transport."); break; }
-                    var channel = Mcs.ParseData(mcs);
-                    if (channel.Channel == _global) await ProcessGlobalAsync(channel.Payload, ct);
-                    else if (channel.Channel == _clipboardChannel && _clipboardChannel != 0)
-                    {
-                        byte[]? clipboard = _clipboardFragments.Accept(channel.Payload);
-                        if (clipboard is not null) await ProcessClipboardAsync(ClipboardCodec.Parse(clipboard), ct);
-                    }
-                    else throw new RdpProtocolException("Data arrived on an unjoined channel.");
-                }
-                if (State == SessionState.Active) handshake.CancelAfter(Timeout.InfiniteTimeSpan);
-            }
-        }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (Exception) when (lifetime.IsCancellationRequested) { }
-        catch (Exception e)
-        {
-            SetState(SessionState.Faulted); Log("Error", e is OperationCanceledException ? "Connection establishment timed out." : e.Message); throw;
-        }
-        finally
-        {
-            if (_stream is not null) await _stream.DisposeAsync(); _tcp?.Dispose();
-            _localClipboard = null; if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult();
-        }
-    }
     private async ValueTask<byte[]> ReadMcsAsync(CancellationToken ct)
     {
         var packet = await Framing.ReadAsync(_stream!, ct);
@@ -145,55 +59,6 @@ public sealed class RdpSession : IRemoteSession, IRemoteCursorSource
     private ValueTask SendChannelAsync(ushort channel, byte[] data, CancellationToken ct) => WriteMcsAsync(Mcs.SendData(_user, channel, data), ct);
     private ValueTask SendShareAsync(byte[] data, CancellationToken ct) => SendChannelAsync(_global, data, ct);
 
-    private async ValueTask ProcessGlobalAsync(byte[] payload, CancellationToken ct)
-    {
-        if (payload.Length >= 4 && BinaryPrimitives.ReadUInt16LittleEndian(payload.AsSpan(2)) == 0 && (payload[0] & 0x80) != 0)
-        {
-            var r = new PacketReader(payload); ushort flags = r.U16(); r.U16();
-            if ((flags & ~0x0280) != 0) throw new RdpProtocolException("Unexpected licensing security flags.");
-            byte type = r.U8(); r.U8(); int length = r.U16();
-            if (length != payload.Length - 4) throw new RdpProtocolException("Invalid license message length.");
-            if (type != 0xff) throw new NotSupportedException("This server requires the full RDS license exchange, which is not yet implemented. No license bypass is attempted.");
-            uint status = r.U32(), transition = r.U32(); r.U16(); int blobLength = r.U16(); r.Skip(blobLength); r.End();
-            if (status != 7 || transition != 2) throw new RdpProtocolException($"Server licensing failed: 0x{status:X8}.");
-            Log("Licensing", "Server accepted this client."); return;
-        }
-        foreach (var share in Activation.ParseShares(payload))
-        {
-            switch (share.Type)
-            {
-                case 1:
-                    _desktop = Activation.ParseDemand(share.Body); SetState(SessionState.Establishing);
-                    DesktopResized?.Invoke(new(_desktop.Width, _desktop.Height));
-                    await SendShareAsync(Activation.Confirm(_desktop, _user, _options!.KeyboardLayout), ct);
-                    await SendShareAsync(Activation.Synchronize(_desktop.ShareId, _user, share.Source), ct);
-                    await SendShareAsync(Activation.Control(_desktop.ShareId, _user, 4), ct);
-                    await SendShareAsync(Activation.Control(_desktop.ShareId, _user, 1), ct);
-                    await SendShareAsync(Activation.FontList(_desktop.ShareId, _user), ct);
-                    break;
-                case 6: SetState(SessionState.Establishing); Log("Session", "Server deactivated the desktop; awaiting reactivation."); break;
-                case 7:
-                    var data = Activation.ParseData(share.Body);
-                    if (_desktop is null || data.ShareId != _desktop.ShareId) throw new RdpProtocolException("Share data referenced an inactive desktop.");
-                    switch (data.Type)
-                    {
-                        case 2: SlowUpdate(data.Body); break;
-                        case 27: SlowPointer(data.Body); break;
-                        case 40:
-                            SetState(SessionState.Active); Log("Session", $"Desktop active: {_desktop.Width}×{_desktop.Height}, {_desktop.BitsPerPixel}-bit bitmap updates.");
-                            await SendShareAsync(Activation.Input(_desktop.ShareId, _user, new(InputKind.Synchronize, 0, 0)), ct);
-                            await SendShareAsync(Activation.Refresh(_desktop.ShareId, _user, _desktop.Width, _desktop.Height), ct); break;
-                        case 47:
-                            var e = new PacketReader(data.Body); uint error = e.U32(); e.End();
-                            if (error != 0) throw new RdpProtocolException($"Server RDP error information: 0x{error:X8}."); break;
-                        case 20: case 31: case 38: case 37: break;
-                        default: Log("Protocol", $"Received optional share data type {data.Type}; no handler is installed."); break;
-                    }
-                    break;
-                default: throw new RdpProtocolException($"Unsupported share control PDU {share.Type}.");
-            }
-        }
-    }
     private void Surface(SurfaceUpdate update)
     {
         if (_desktop is null || (long)update.X + update.Width > _desktop.Width || (long)update.Y + update.Height > _desktop.Height)
