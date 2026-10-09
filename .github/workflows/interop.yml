@@ -1,0 +1,75 @@
+name: RDP interoperability
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: interop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  xrdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build client and test security codecs
+        run: dotnet run --project tests/RemoteSpace.Integration -c Release
+      - name: Install isolated interoperability server
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y xrdp xorgxrdp xterm x11-xserver-utils xclip python3-pil
+          sudo useradd -m -s /bin/bash rdptest
+          password="$(openssl rand -hex 16)"
+          echo "::add-mask::$password"
+          echo "rdptest:$password" | sudo chpasswd
+          echo "RDP_TEST_PASSWORD=$password" >> "$GITHUB_ENV"
+          sudo openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/xrdp/remote.key -out /etc/xrdp/remote.crt -days 1 -subj /CN=localhost
+          sudo chown xrdp:xrdp /etc/xrdp/remote.key /etc/xrdp/remote.crt
+          sudo chmod 600 /etc/xrdp/remote.key
+          sudo sed -i 's/^security_layer=.*/security_layer=tls/;s|^certificate=.*|certificate=/etc/xrdp/remote.crt|;s|^key_file=.*|key_file=/etc/xrdp/remote.key|;s/^port=3389/port=tcp:\/\/127.0.0.1:3389/' /etc/xrdp/xrdp.ini
+          printf '#!/bin/sh\ncd "$HOME"\nxsetroot -solid "#14283c"\nexec xterm -geometry 90x30+20+20 -bg "#173956" -fg white -title "RemoteSpace interoperability" -e /bin/bash --noprofile --norc\n' | sudo tee /home/rdptest/.xsession > /dev/null
+          sudo chmod +x /home/rdptest/.xsession
+          sudo chown rdptest:rdptest /home/rdptest/.xsession
+          echo "RDP_TEST_PIN=$(openssl x509 -in /etc/xrdp/remote.crt -fingerprint -sha256 -noout | cut -d= -f2 | tr -d :)" >> "$GITHUB_ENV"
+          sudo systemctl restart xrdp-sesman xrdp
+      - name: Connect, decode desktop, and send real keyboard input
+        env:
+          RDP_TEST_HOST: localhost
+          RDP_TEST_USER: rdptest
+        run: |
+          dotnet run --project tests/RemoteSpace.Integration -c Release --no-build
+          sudo test -f /home/rdptest/proof
+          echo 'PASS independent server-side keyboard effect: /home/rdptest/proof'
+          python3 -c "from PIL import Image; Image.open('artifacts/integration/desktop.ppm').save('artifacts/integration/desktop.png')"
+      - name: Collect server diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/integration
+          sudo cat /var/log/xrdp.log > artifacts/integration/xrdp.log || true
+          sudo cat /var/log/xrdp-sesman.log > artifacts/integration/sesman.log || true
+          sudo cat /home/rdptest/.xsession-errors > artifacts/integration/xsession.log || true
+          cat artifacts/integration/xrdp.log
+          cat artifacts/integration/sesman.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rdp-interoperability
+          path: artifacts/integration
+  template-reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Inspect pinned Uno template entry points
+        run: |
+          dotnet new install Uno.Templates@6.7.30
+          dotnet new unoapp -preset blank -o /tmp/UnoReference --no-restore
+          find /tmp/UnoReference -type f \( -name '*.csproj' -o -name 'Program.cs' -o -name 'App.xaml' -o -name 'App.xaml.cs' -o -name 'index.html' \) -print -exec cat {} \;

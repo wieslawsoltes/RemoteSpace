@@ -1,0 +1,82 @@
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Text;
+using RemoteSpace.Client;
+using RemoteSpace.Core;
+using RemoteSpace.Graphics;
+using RemoteSpace.Security;
+
+int checks = 0;
+void Check(bool condition, string name) { if (!condition) throw new Exception("FAILED: " + name); Console.WriteLine("PASS " + name); checks++; }
+byte[] nonce = Enumerable.Range(0, 32).Select(n => (byte)n).ToArray();
+var message = new CredSspMessage(6, [1, 2, 3], [4, 5], [6, 7], 0xc000006d, nonce);
+var decoded = CredSsp.Decode(CredSsp.Encode(message));
+Check(decoded.Version == 6 && decoded.Token!.SequenceEqual(message.Token!) && decoded.AuthInfo!.SequenceEqual(message.AuthInfo!) && decoded.PublicKeyAuth!.SequenceEqual(message.PublicKeyAuth!) && decoded.Error == message.Error && decoded.Nonce!.SequenceEqual(nonce), "CredSSP ASN.1 field round trip");
+Check(Convert.ToHexString(CredSsp.Encode(new(6))) == "3005A003020106", "CredSSP version golden bytes");
+Check(!CredSsp.BindingHash(true, nonce, [1, 2, 3]).SequenceEqual(CredSsp.BindingHash(false, nonce, [1, 2, 3])), "channel-binding reflection resistance");
+Check(!CredSsp.BindingHash(true, nonce, [1, 2, 3]).SequenceEqual(CredSsp.BindingHash(true, new byte[32], [1, 2, 3])), "channel binding includes nonce");
+byte[] encoded = CredSsp.Encode(message);
+for (int n = 0; n < encoded.Length; n++)
+{
+    bool rejected = false; try { CredSsp.Decode(encoded.AsMemory(0, n)); } catch (IOException) { rejected = true; }
+    Check(rejected, "CredSSP truncation " + n);
+}
+Check((await CredSsp.ReadAsync(new MemoryStream(encoded), CancellationToken.None)).SequenceEqual(encoded), "CredSSP stream framing");
+using var rsa = RSA.Create(2048);
+var request = new CertificateRequest("CN=localhost", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+string pin = certificate.GetCertHashString(HashAlgorithmName.SHA256);
+Check(CertificatePolicy.Validate(certificate, SslPolicyErrors.None, null, DateTimeOffset.UtcNow), "valid certificate accepted");
+Check(!CertificatePolicy.Validate(certificate, SslPolicyErrors.RemoteCertificateChainErrors, null, DateTimeOffset.UtcNow), "unknown CA rejected without explicit pin");
+Check(CertificatePolicy.Validate(certificate, SslPolicyErrors.RemoteCertificateChainErrors, pin, DateTimeOffset.UtcNow), "explicit exact certificate pin accepted");
+Check(!CertificatePolicy.Validate(certificate, SslPolicyErrors.None, new string('0', 64), DateTimeOffset.UtcNow), "wrong certificate pin rejected");
+Check(!CertificatePolicy.Validate(certificate, SslPolicyErrors.None, pin, DateTimeOffset.UtcNow.AddDays(3)), "expired pinned certificate rejected");
+Console.WriteLine($"RESULT: {checks} security checks passed.");
+
+string? host = Environment.GetEnvironmentVariable("RDP_TEST_HOST");
+if (string.IsNullOrEmpty(host)) { Console.WriteLine("NETWORK: not requested; set RDP_TEST_HOST for an authorized test server."); return; }
+string password = Environment.GetEnvironmentVariable("RDP_TEST_PASSWORD") ?? throw new Exception("RDP_TEST_PASSWORD is required.");
+string user = Environment.GetEnvironmentVariable("RDP_TEST_USER") ?? "rdptest";
+var options = new ConnectionOptions { Host = host, Security = SecurityMode.Tls, CertificateSha256 = Environment.GetEnvironmentVariable("RDP_TEST_PIN"), RedirectClipboard = true, Width = 1280, Height = 720, ConnectTimeout = TimeSpan.FromSeconds(60) };
+using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+await using var session = new RdpSession();
+var active = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var pixels = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var frame = new FrameBuffer(); long rectangles = 0;
+session.StateChanged += state => { Console.WriteLine("STATE " + state); if (state == SessionState.Active) active.TrySetResult(); };
+session.Diagnostic += d => Console.WriteLine(d.Stage + ": " + d.Message);
+session.DesktopResized += d => frame.Resize(d.Width, d.Height);
+session.SurfaceUpdated += update => { frame.Apply(update); Interlocked.Increment(ref rectangles); if (session.DecodedPixels > 100_000) pixels.TrySetResult(); };
+session.ClipboardReceived += text => Console.WriteLine("CLIPBOARD received " + text.Length + " characters");
+Task running = session.RunAsync(options, new SessionCredentials(user, password), deadline.Token);
+await AwaitOrFailure(active.Task); await AwaitOrFailure(pixels.Task);
+await Task.Delay(3000, deadline.Token);
+await session.SendInputAsync(new(InputKind.Pointer, 0x8000 | 0x1000, 0, 100, 100), deadline.Token);
+await session.SendInputAsync(new(InputKind.Pointer, 0x1000, 0, 100, 100), deadline.Token);
+// Type a shell command into the real xterm. The CI job independently checks the resulting remote file.
+ushort[] command = [0x14, 0x18, 0x16, 0x2e, 0x23, 0x39, 0x19, 0x13, 0x18, 0x18, 0x21, 0x1c];
+foreach (ushort code in command)
+{
+    await session.SendInputAsync(new(InputKind.ScanCode, 0, code), deadline.Token);
+    await session.SendInputAsync(new(InputKind.ScanCode, 0x8000, code), deadline.Token);
+}
+await Task.Delay(2000, deadline.Token);
+var snapshot = frame.Snapshot();
+Directory.CreateDirectory("artifacts/integration");
+await using (var file = File.Create("artifacts/integration/desktop.ppm"))
+{
+    await file.WriteAsync(Encoding.ASCII.GetBytes($"P6\n{snapshot.Width} {snapshot.Height}\n255\n"));
+    byte[] rgb = new byte[snapshot.Width * snapshot.Height * 3];
+    for (int src = 0, dst = 0; src < snapshot.Rgba.Length; src += 4) { rgb[dst++] = snapshot.Rgba[src]; rgb[dst++] = snapshot.Rgba[src + 1]; rgb[dst++] = snapshot.Rgba[src + 2]; }
+    await file.WriteAsync(rgb);
+}
+Check(rectangles > 1 && session.DecodedPixels >= 100_000, "live RDP desktop pixels decoded");
+Console.WriteLine($"INTEROP: {rectangles} rectangles; {session.DecodedPixels} decoded pixels; {session.ReceivedBytes} received bytes.");
+await session.DisconnectAsync(); await running;
+async Task AwaitOrFailure(Task expected)
+{
+    Task finished = await Task.WhenAny(expected, running).WaitAsync(deadline.Token);
+    if (finished == running) { await running; throw new Exception("Session ended before the expected integration event."); }
+    await expected;
+}
