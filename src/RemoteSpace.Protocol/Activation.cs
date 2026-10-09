@@ -30,9 +30,9 @@ public static class Activation
         while (offset < data.Length)
         {
             var r = new PacketReader(data.AsSpan(offset)); int length = r.U16();
-            if (length < 6 || length > data.Length - offset) throw new RdpProtocolException("Invalid share control length.");
+            if (length < 6 || length > data.Length - offset) throw new RdpProtocolException($"Invalid share control length {length} in a {data.Length - offset}-byte envelope.");
             ushort type = r.U16(), source = r.U16();
-            if ((type & 0x00f0) != 0x10) throw new RdpProtocolException("Invalid share control version.");
+            if ((type & 0x00f0) != 0x10) throw new RdpProtocolException($"Invalid share control version: type=0x{type:X4}, length={length}, source={source}.");
             result.Add(new((byte)(type & 15), source, r.Bytes(length - 6).ToArray())); offset += length;
         }
         return result;

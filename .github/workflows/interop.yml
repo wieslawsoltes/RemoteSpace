@@ -58,39 +58,12 @@ jobs:
         run: |
           dotnet new install Uno.Templates@6.7.30
           dotnet new unoapp -preset blank -o /tmp/UnoReference
+          dotnet new unolib -o /tmp/UnoLibraryReference
+          find /tmp/UnoLibraryReference -name '*.csproj' -print -exec cat {} \;
           find /tmp/UnoReference -type f \( -name '*.csproj' -o -name 'Program.cs' -o -name 'App.xaml' -o -name 'App.xaml.cs' -o -name 'index.html' \) -print -exec cat {} \;
       - uses: actions/upload-artifact@v4
         with:
           name: uno-template-reference
-          path: /tmp/UnoReference
-  offline-core-tooling:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Export public SDK and source for offline validation
-        shell: bash
-        run: |
-          mkdir -p /tmp/core-tooling/dotnet/{sdk,shared,packs} artifacts/tooling
-          cp /usr/share/dotnet/dotnet /tmp/core-tooling/dotnet/
-          cp -a /usr/share/dotnet/host /tmp/core-tooling/dotnet/
-          cp -a "/usr/share/dotnet/sdk/$(dotnet --version)" /tmp/core-tooling/dotnet/sdk/
-          for name in Microsoft.NETCore.App Microsoft.AspNetCore.App; do
-            mkdir -p "/tmp/core-tooling/dotnet/shared/$name"
-            cp -a /usr/share/dotnet/shared/"$name"/10.* "/tmp/core-tooling/dotnet/shared/$name/"
-          done
-          for name in Microsoft.NETCore.App.Ref Microsoft.AspNetCore.App.Ref Microsoft.NETCore.App.Host.linux-x64; do
-            mkdir -p "/tmp/core-tooling/dotnet/packs/$name"
-            cp -a /usr/share/dotnet/packs/"$name"/10.* "/tmp/core-tooling/dotnet/packs/$name/"
-          done
-          tar -czf artifacts/tooling/dotnet-sdk.tar.gz -C /tmp/core-tooling dotnet
-          git archive --format=zip --output=artifacts/tooling/source.zip HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: offline-core-tooling
-          path: artifacts/tooling
-          retention-days: 1
-          compression-level: 0
+          path: |
+            /tmp/UnoReference
+            /tmp/UnoLibraryReference
