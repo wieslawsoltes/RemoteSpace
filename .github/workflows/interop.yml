@@ -18,26 +18,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Build client and test security codecs
-        run: dotnet run --project tests/RemoteSpace.Integration -c Release
-      - name: Install isolated interoperability server
+      - name: Build client, bridge and test security codecs
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y xrdp xorgxrdp xterm x11-xserver-utils xclip python3-pil
-          sudo useradd -m -s /bin/bash rdptest
-          password="$(openssl rand -hex 16)"
-          echo "::add-mask::$password"
-          echo "rdptest:$password" | sudo chpasswd
-          echo "RDP_TEST_PASSWORD=$password" >> "$GITHUB_ENV"
-          sudo openssl req -x509 -newkey rsa:2048 -nodes -keyout /etc/xrdp/remote.key -out /etc/xrdp/remote.crt -days 1 -subj /CN=localhost
-          sudo chown xrdp:xrdp /etc/xrdp/remote.key /etc/xrdp/remote.crt
-          sudo chmod 600 /etc/xrdp/remote.key
-          sudo sed -i 's/^security_layer=.*/security_layer=tls/;s|^certificate=.*|certificate=/etc/xrdp/remote.crt|;s|^key_file=.*|key_file=/etc/xrdp/remote.key|;s/^port=3389/port=tcp:\/\/127.0.0.1:3389/' /etc/xrdp/xrdp.ini
-          printf '#!/bin/sh\ncd "$HOME"\nxsetroot -solid "#14283c"\nexec xterm -geometry 90x30+20+20 -bg "#173956" -fg white -title "RemoteSpace interoperability" -e /bin/bash --noprofile --norc\n' | sudo tee /home/rdptest/.xsession > /dev/null
-          sudo chmod +x /home/rdptest/.xsession
-          sudo chown rdptest:rdptest /home/rdptest/.xsession
-          echo "RDP_TEST_PIN=$(openssl x509 -in /etc/xrdp/remote.crt -fingerprint -sha256 -noout | cut -d= -f2 | tr -d :)" >> "$GITHUB_ENV"
-          sudo systemctl restart xrdp-sesman xrdp
+          dotnet build apps/RemoteSpace.Bridge -c Release
+          dotnet run --project tests/RemoteSpace.Integration -c Release
+      - name: Install isolated interoperability server
+        run: bash tools/start-test-server.sh
       - name: Connect, decode desktop, and send real keyboard input
         env:
           RDP_TEST_HOST: localhost
@@ -71,5 +57,40 @@ jobs:
       - name: Inspect pinned Uno template entry points
         run: |
           dotnet new install Uno.Templates@6.7.30
-          dotnet new unoapp -preset blank -o /tmp/UnoReference --no-restore
+          dotnet new unoapp -preset blank -o /tmp/UnoReference
           find /tmp/UnoReference -type f \( -name '*.csproj' -o -name 'Program.cs' -o -name 'App.xaml' -o -name 'App.xaml.cs' -o -name 'index.html' \) -print -exec cat {} \;
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uno-template-reference
+          path: /tmp/UnoReference
+  offline-core-tooling:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Export public SDK and source for offline validation
+        shell: bash
+        run: |
+          mkdir -p /tmp/core-tooling/dotnet/{sdk,shared,packs} artifacts/tooling
+          cp /usr/share/dotnet/dotnet /tmp/core-tooling/dotnet/
+          cp -a /usr/share/dotnet/host /tmp/core-tooling/dotnet/
+          cp -a "/usr/share/dotnet/sdk/$(dotnet --version)" /tmp/core-tooling/dotnet/sdk/
+          for name in Microsoft.NETCore.App Microsoft.AspNetCore.App; do
+            mkdir -p "/tmp/core-tooling/dotnet/shared/$name"
+            cp -a /usr/share/dotnet/shared/"$name"/10.* "/tmp/core-tooling/dotnet/shared/$name/"
+          done
+          for name in Microsoft.NETCore.App.Ref Microsoft.AspNetCore.App.Ref Microsoft.NETCore.App.Host.linux-x64; do
+            mkdir -p "/tmp/core-tooling/dotnet/packs/$name"
+            cp -a /usr/share/dotnet/packs/"$name"/10.* "/tmp/core-tooling/dotnet/packs/$name/"
+          done
+          tar -czf artifacts/tooling/dotnet-sdk.tar.gz -C /tmp/core-tooling dotnet
+          git archive --format=zip --output=artifacts/tooling/source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-core-tooling
+          path: artifacts/tooling
+          retention-days: 1
+          compression-level: 0

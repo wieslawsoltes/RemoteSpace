@@ -9,12 +9,14 @@ public sealed record DemandActive(uint ShareId, int Width, int Height, int BitsP
 
 public static class Activation
 {
+    public const uint ClientInfoFlags = 0x004b017b;
+
     public static byte[] ClientInfo(ConnectionOptions options, SessionCredentials credentials, bool nla)
     {
         string[] fields = [credentials.Domain, credentials.UserName, nla ? "" : credentials.Password, "", ""];
         if (fields.Any(s => s.Length > 255 || s.Contains('\0'))) throw new ArgumentException("RDP credential fields must be at most 255 characters and cannot contain NUL.");
-        uint flags = 1 | 2 | 8 | 0x10 | 0x40 | 0x100 | 0x10000 | 0x20000 | 0x80000 | 0x400000;
-        var w = new PacketWriter().U16(0x40).U16(0).U32(options.KeyboardLayout & 0xffff).U32(flags);
+        // Includes INFO_MAXIMIZESHELL: required by xrdp's INFO_LOGON_NORMAL validation.
+        var w = new PacketWriter().U16(0x40).U16(0).U32(options.KeyboardLayout & 0xffff).U32(ClientInfoFlags);
         foreach (string value in fields) w.U16(Encoding.Unicode.GetByteCount(value));
         foreach (string value in fields) w.Utf16(value);
         const string address = "0.0.0.0", directory = "C:\\RemoteSpace";
@@ -40,7 +42,7 @@ public static class Activation
         var r = new PacketReader(body); uint share = r.U32(); r.U8(); r.U8();
         int uncompressed = r.U16(); byte type = r.U8(), compression = r.U8(); ushort compressedLength = r.U16();
         if ((compression & 0x20) != 0) throw new RdpProtocolException("Server sent bulk-compressed data that was not negotiated.");
-        // MS-RDPBCGR 4.1.14: this length excludes the first 14 bytes of the full PDU.
+        // MS-RDPBCGR 4.1.14: excludes the first 14 bytes of the full PDU.
         if (uncompressed != 0 && uncompressed != body.Length - 8) throw new RdpProtocolException("Invalid uncompressed share data length.");
         if (compressedLength != 0 && compression == 0) throw new RdpProtocolException("Unexpected compressed data length.");
         return new(share, type, r.Bytes(r.Remaining).ToArray());
