@@ -1,0 +1,36 @@
+name: Validate
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Protocol, graphics, profile and security tests
+        run: dotnet run --project tests/RemoteSpace.Tests -c Release
+      - name: Pack reusable components
+        shell: bash
+        run: |
+          mkdir -p artifacts/packages
+          for project in src/*/*.csproj; do
+            if ! grep -q 'Uno.Sdk' "$project"; then dotnet pack "$project" -c Release -o artifacts/packages; fi
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.os }}
+          path: artifacts/packages
