@@ -22,16 +22,14 @@ public ref struct PacketReader(ReadOnlySpan<byte> data)
     public int PerLength() { int n = U8(); return (n & 0x80) == 0 ? n : ((n & 0x7f) << 8) | U8(); }
     public ReadOnlySpan<byte> Ber(int expectedTag)
     {
-        int tag = U8();
-        if ((tag & 0x1f) == 0x1f) tag = (tag << 8) | U8();
+        int tag = U8(); if ((tag & 0x1f) == 0x1f) tag = (tag << 8) | U8();
         if (tag != expectedTag) throw new RdpProtocolException($"Expected BER tag {expectedTag:X}, received {tag:X}.");
         int first = U8(), length = first;
         if ((first & 0x80) != 0)
         {
             int count = first & 0x7f;
             if (count is < 1 or > 3) throw new RdpProtocolException("Indefinite or oversized BER length.");
-            length = 0;
-            for (int i = 0; i < count; i++) length = (length << 8) | U8();
+            length = 0; for (int i = 0; i < count; i++) length = (length << 8) | U8();
         }
         return Bytes(length);
     }
@@ -55,8 +53,7 @@ public sealed class PacketWriter
     }
     public PacketWriter Ber(int tag, ReadOnlySpan<byte> value)
     {
-        if (tag > 255) U8(tag >> 8);
-        U8(tag & 255);
+        if (tag > 255) U8(tag >> 8); U8(tag & 255);
         if (value.Length < 128) U8(value.Length);
         else if (value.Length <= 255) U8(0x81).U8(value.Length);
         else if (value.Length <= 65535) U8(0x82).U16BE(value.Length);
@@ -65,10 +62,9 @@ public sealed class PacketWriter
     }
     public PacketWriter BerInteger(uint value)
     {
-        Span<byte> bytes = stackalloc byte[5];
+        Span<byte> bytes = stackalloc byte[5]; bytes.Clear();
         BinaryPrimitives.WriteUInt32BigEndian(bytes[1..], value);
-        int start = 1;
-        while (start < 4 && bytes[start] == 0) start++;
+        int start = 1; while (start < 4 && bytes[start] == 0) start++;
         if ((bytes[start] & 0x80) != 0) start--;
         return Ber(2, bytes[start..]);
     }

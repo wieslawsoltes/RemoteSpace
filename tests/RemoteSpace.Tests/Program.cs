@@ -7,7 +7,6 @@ using RemoteSpace.Profiles;
 int checks = 0;
 void Check(bool value, string name) { if (!value) throw new Exception("FAILED: " + name); checks++; Console.WriteLine("PASS " + name); }
 void Reject(Action action, string name) { bool thrown = false; try { action(); } catch (Exception e) when (e is ArgumentException or FormatException or IOException) { thrown = true; } Check(thrown, name); }
-
 Check(Convert.ToHexString(Negotiation.Request(SecurityProtocols.Tls | SecurityProtocols.Hybrid)) == "030000130EE000000000000100080003000000", "X.224 negotiation golden bytes");
 var confirm = Convert.FromHexString("0ED000000000000200080002000000");
 Check(Negotiation.ParseConfirm(confirm, SecurityProtocols.Hybrid).Protocol == SecurityProtocols.Hybrid, "security negotiation");
@@ -43,4 +42,6 @@ Check(RdpFile.Parse("full address:s:host\npassword 51:b:secret\nredirectprinters
 Reject(() => new ConnectionOptions { Host = "host", Width = 8192, Height = 8192 }.Validate(), "desktop allocation bound");
 Reject(() => new ConnectionOptions { Host = "host", CertificateSha256 = "00" }.Validate(), "pin length validation");
 Check(!new SessionCredentials("user", "secret").ToString().Contains("secret"), "credentials redact ToString");
+ProtocolTests.Run(Check, Reject);
+Check(Convert.ToHexString(Activation.Synchronize(0x000103ea, 1007, 1002)) == "16001700EF03EA030100000108001F0000000100EA03", "Microsoft client synchronize golden PDU");
 Console.WriteLine($"RESULT: {checks} checks passed.");
