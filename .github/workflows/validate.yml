@@ -49,6 +49,7 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/validation
           dotnet run --project tests/RemoteSpace.Tests -c Release 2>&1 | tee artifacts/validation/core-tests.log
+          dotnet run --project tests/RemoteSpace.Workspace.Tests -c Release 2>&1 | tee artifacts/validation/workspace-tests.log
       - name: Pack reusable components
         shell: bash
         run: |

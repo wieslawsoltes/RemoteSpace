@@ -26,10 +26,12 @@ jobs:
         run: bash tools/start-test-server.sh
       - name: Connect, decode desktop, and send real keyboard input
         env:
-          RDP_TEST_HOST: localhost
+          RDP_TEST_HOST: 127.0.0.1
           RDP_TEST_USER: rdptest
         run: |
-          dotnet run --project tests/RemoteSpace.Integration -c Release --no-build
+          set -euo pipefail
+          mkdir -p artifacts/integration
+          dotnet run --project tests/RemoteSpace.Integration -c Release --no-build 2>&1 | tee artifacts/integration/client.log
           sudo test -f /home/rdptest/proof
           echo 'PASS independent server-side keyboard effect: /home/rdptest/proof'
           python3 -c "from PIL import Image; Image.open('artifacts/integration/desktop.ppm').save('artifacts/integration/desktop.png')"
