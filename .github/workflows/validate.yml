@@ -10,6 +10,28 @@ concurrency:
   group: validate-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive exact tested source and history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/source
+          git archive --format=zip --prefix=RemoteSpace/ HEAD > artifacts/source/RemoteSpace-source.zip
+          git bundle create artifacts/source/RemoteSpace-history.bundle HEAD
+          git rev-parse HEAD > artifacts/source/COMMIT.txt
+          git rev-parse HEAD^{tree} > artifacts/source/TREE.txt
+          cd artifacts/source
+          sha256sum RemoteSpace-source.zip RemoteSpace-history.bundle > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: artifacts/source
+          if-no-files-found: error
   core:
     strategy:
       fail-fast: false
@@ -22,14 +44,24 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - name: Protocol, graphics, profile and security tests
-        run: dotnet run --project tests/RemoteSpace.Tests -c Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/validation
+          dotnet run --project tests/RemoteSpace.Tests -c Release 2>&1 | tee artifacts/validation/core-tests.log
       - name: Pack reusable components
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p artifacts/packages
           for project in src/*/*.csproj; do
             if ! grep -q 'Uno.Sdk' "$project"; then dotnet pack "$project" -c Release -o artifacts/packages; fi
           done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-${{ matrix.os }}
+          path: artifacts/validation
       - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.os }}
