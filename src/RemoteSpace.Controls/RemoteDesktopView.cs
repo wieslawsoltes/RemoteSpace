@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -24,6 +25,7 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
     private IRemoteSession? _session;
     private Channel<RemoteInput>? _outbox;
     private Task? _writer;
+    private readonly Microsoft.UI.Input.InputSystemCursor _arrow = Microsoft.UI.Input.InputSystemCursor.Create(Microsoft.UI.Input.InputSystemCursorShape.Arrow);
     private CancellationTokenSource? _stop;
     private readonly SemaphoreSlim _attachment = new(1);
     public event Action<string>? InputError;
@@ -49,7 +51,12 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
         KeyDown += (_, e) =>
         {
             if (_session?.State != SessionState.Active) return;
+#if __WASM__
+            // Uno's browser KeyStatus is not implemented; its key mapping still supplies virtual keys.
+            var key = _input.KeyDown((uint)e.Key);
+#else
             var key = _input.KeyDown((uint)e.Key, e.KeyStatus.ScanCode, e.KeyStatus.IsExtendedKey);
+#endif
             if (key is { } value) { Queue(value); e.Handled = true; }
         };
         KeyUp += (_, e) => { if (_input.KeyUp((uint)e.Key) is { } value) { Queue(value); e.Handled = true; } };
@@ -102,6 +109,13 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
             { foreach (var input in _input.Wheel(Math.Clamp(p.Properties.MouseWheelDelta, -12000, 12000), point.X, point.Y)) Queue(input); e.Handled = true; }
         };
     }
+    protected override AutomationPeer OnCreateAutomationPeer() => new DesktopPeer(this);
+    private sealed class DesktopPeer(RemoteDesktopView owner) : FrameworkElementAutomationPeer(owner)
+    {
+        protected override string GetClassNameCore() => nameof(RemoteDesktopView);
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.Pane;
+        protected override bool IsKeyboardFocusableCore() => true;
+    }
     public async Task AttachAsync(IRemoteSession? session)
     {
         await _attachment.WaitAsync();
@@ -153,15 +167,20 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
     }
     private void OnSize(DesktopSize size) => _canvas.Resize(size.Width, size.Height);
     private void OnSurface(SurfaceUpdate update) => _canvas.Apply(update);
-    private void OnCursor(RemoteCursor cursor) => _canvas.SetCursor(cursor);
+    private void OnCursor(RemoteCursor cursor)
+    {
+        _canvas.SetCursor(cursor);
+        DispatcherQueue.TryEnqueue(() => ProtectedCursor = cursor.SystemDefault ? _arrow : null);
+    }
     private void OnCursorPosition(ushort x, ushort y) => _canvas.MoveCursor(x, y);
-    public async ValueTask DisposeAsync() { _refresh.Stop(); await AttachAsync(null); _canvas.Dispose(); }
+    public async ValueTask DisposeAsync() { _refresh.Stop(); await AttachAsync(null); _canvas.Dispose(); _arrow.Dispose(); }
 
     private sealed class DesktopCanvas : SKCanvasElement, IDisposable
     {
         private readonly object _gate = new();
         private SKBitmap? _bitmap, _cursor;
         private RemoteCursor? _cursorInfo;
+        private byte[]? _resolvedCursor;
         private int _cursorX, _cursorY, _dirty;
         private Viewport _viewport;
         public bool Fit { get; set; } = true;
@@ -174,7 +193,7 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
         public void PresentIfDirty() { if (Interlocked.Exchange(ref _dirty, 0) != 0) Invalidate(); }
         public void Clear()
         {
-            lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = 0; }
+            lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; _resolvedCursor = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = 0; }
             MarkDirty();
         }
         public void Resize(int width, int height)
@@ -203,11 +222,11 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
         }
         public void SetCursor(RemoteCursor cursor)
         {
-            if (!cursor.Hidden && !cursor.SystemDefault && (cursor.Width is < 1 or > 384 || cursor.Height is < 1 or > 384 || cursor.HotX < 0 || cursor.HotY < 0 || cursor.HotX >= cursor.Width || cursor.HotY >= cursor.Height || cursor.Rgba.LongLength != (long)cursor.Width * cursor.Height * 4))
-                throw new InvalidDataException("Invalid cursor dimensions.");
+            if (!cursor.Hidden && !cursor.SystemDefault) CursorCompositor.Validate(cursor);
             lock (_gate)
             {
                 _cursor?.Dispose(); _cursor = null; _cursorInfo = cursor;
+                _resolvedCursor = cursor.InvertMask is null ? null : new byte[cursor.Rgba.Length];
                 if (!cursor.Hidden && !cursor.SystemDefault)
                 {
                     _cursor = new SKBitmap(cursor.Width, cursor.Height, SKColorType.Rgba8888, SKAlphaType.Unpremul);
@@ -236,9 +255,16 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
                 canvas.DrawBitmap(_bitmap, rect);
                 if (_cursor is not null && _cursorInfo is { } cursor)
                 {
+                    if (_resolvedCursor is not null)
+                    {
+                        CursorCompositor.Resolve(cursor, _bitmap.GetPixelSpan(), PixelWidth, PixelHeight, _bitmap.RowBytes, _cursorX, _cursorY, _resolvedCursor);
+                        Marshal.Copy(_resolvedCursor, 0, _cursor.GetPixels(), _resolvedCursor.Length); _cursor.NotifyPixelsChanged();
+                    }
                     float sx = (float)(_viewport.Width / PixelWidth), sy = (float)(_viewport.Height / PixelHeight);
                     float x = rect.Left + (_cursorX - cursor.HotX) * sx, y = rect.Top + (_cursorY - cursor.HotY) * sy;
+                    canvas.Save(); canvas.ClipRect(rect);
                     canvas.DrawBitmap(_cursor, new SKRect(x, y, x + cursor.Width * sx, y + cursor.Height * sy));
+                    canvas.Restore();
                 }
                 PresentedFrames++;
             }
@@ -251,6 +277,6 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
                 using var image = SKImage.FromBitmap(_bitmap); using var data = image.Encode(SKEncodedImageFormat.Png, 100); return data.ToArray();
             }
         }
-        public void Dispose() => Clear();
+        public new void Dispose() { Clear(); base.Dispose(); }
     }
 }

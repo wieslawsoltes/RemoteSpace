@@ -31,13 +31,17 @@ async def run(site: Path, output: Path):
         try:
             await page.goto(f'http://127.0.0.1:{server.server_port}/', wait_until='domcontentloaded')
             await asyncio.wait_for(ready.wait(), 120)
+            # Exercise the supported screen-reader activation entry point if the host
+            # initialized before the app's auto-enable preference was applied.
+            enabler = page.get_by_role('button', name='Enable accessibility', exact=True)
+            if await enabler.count(): await enabler.press('Enter')
             await page.wait_for_timeout(1000)
             await page.screenshot(path=str(output/'01-workspace.png'))
             passed('Uno WASM application booted and rendered')
             (output/'initial-dom.html').write_text(await page.content())
-            await expect(page.get_by_role('button', name='＋ Add PC', exact=True)).to_be_attached()
+            await expect(page.get_by_role('button', name='Add your first PC', exact=True)).to_be_attached()
             passed('Skia accessible command tree is available')
-            await page.get_by_role('button', name='＋ Add PC', exact=True).click(force=True)
+            await page.get_by_role('button', name='Add your first PC', exact=True).click(force=True)
             await expect(page.get_by_role('textbox', name='Friendly name', exact=True)).to_be_attached()
             await page.get_by_role('textbox', name='Friendly name', exact=True).fill('Test workstation')
             await page.get_by_role('textbox', name='PC address', exact=True).fill('rdp.test.invalid')
@@ -54,6 +58,8 @@ async def run(site: Path, output: Path):
             ready.clear()
             await page.reload(wait_until='domcontentloaded')
             await asyncio.wait_for(ready.wait(), 120)
+            enabler = page.get_by_role('button', name='Enable accessibility', exact=True)
+            if await enabler.count(): await enabler.press('Enter')
             await expect(page.get_by_role('button', name='Connect to Test workstation', exact=True)).to_be_attached()
             passed('Saved devices survive a browser reload')
             await page.get_by_role('button', name='Connect to Test workstation', exact=True).click(force=True)

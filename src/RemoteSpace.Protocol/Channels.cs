@@ -43,8 +43,17 @@ public static class ClipboardCodec
     public static ClipboardPacket Parse(ReadOnlySpan<byte> bytes)
     {
         var r = new PacketReader(bytes); ushort type = r.U16(), flags = r.U16(); uint length = r.U32();
-        if (length > MaximumTextBytes + 1024 || length != r.Remaining) throw new RdpProtocolException("Invalid clipboard PDU length.");
-        return new(type, flags, r.Bytes((int)length).ToArray());
+        if (length > MaximumTextBytes + 1024 || length > r.Remaining)
+            throw new RdpProtocolException($"Invalid clipboard PDU length: type={type}, declared={length}, available={r.Remaining}.");
+        byte[] data = r.Bytes((int)length).ToArray();
+        // Older peers append a zero DWORD outside dataLen. Never interpret it as
+        // clipboard content, and reject every other trailing-byte shape.
+        if (r.Remaining == 4)
+        {
+            if (r.U32() != 0) throw new RdpProtocolException("Nonzero clipboard alignment trailer.");
+        }
+        r.End();
+        return new(type, flags, data);
     }
     public static byte[] Pdu(ushort type, ushort flags, ReadOnlySpan<byte> payload) => new PacketWriter().U16(type).U16(flags).U32((uint)payload.Length).Bytes(payload).ToArray();
     public static byte[] Capabilities() => Pdu(7, 0, new PacketWriter().U16(1).U16(0).U16(1).U16(12).U32(2).U32(2).ToArray());
@@ -75,8 +84,10 @@ public static class ClipboardCodec
     }
     public static byte[] TextResponse(string text)
     {
-        if (text.Contains('\0') || Encoding.Unicode.GetByteCount(text) + 2 > MaximumTextBytes) throw new ArgumentException("Clipboard text contains NUL or exceeds one megabyte.");
-        return Pdu(5, 1, Encoding.Unicode.GetBytes(text + "\0"));
+        ArgumentNullException.ThrowIfNull(text);
+        var unicode = new UnicodeEncoding(false, false, true);
+        if (text.Contains('\0') || unicode.GetByteCount(text) + 2 > MaximumTextBytes) throw new ArgumentException("Clipboard text contains NUL or exceeds one megabyte.");
+        return Pdu(5, 1, unicode.GetBytes(text + "\0"));
     }
     public static string ReadText(ReadOnlySpan<byte> text)
     {
@@ -116,7 +127,7 @@ public sealed class FastPathAssembler
             _parts.Write(data);
             if (fragment == 1)
             {
-                byte[] assembled = _parts.ToArray(); _parts.Dispose(); _parts = null; completed(code, assembled);
+                byte[] assembled = _parts.ToArray(); _parts.Dispose(); _parts = null; completed(_code, assembled);
             }
         }
     }
