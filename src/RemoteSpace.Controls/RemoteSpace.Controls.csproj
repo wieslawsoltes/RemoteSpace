@@ -1,0 +1,14 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-desktop;net10.0-browserwasm</TargetFrameworks>
+    <UnoSingleProject>true</UnoSingleProject>
+    <OutputType>Library</OutputType>
+    <GenerateLibraryLayout>true</GenerateLibraryLayout>
+    <UnoFeatures>SkiaRenderer;</UnoFeatures>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../RemoteSpace.Graphics/RemoteSpace.Graphics.csproj" />
+    <ProjectReference Include="../RemoteSpace.Input/RemoteSpace.Input.csproj" />
+    <ProjectReference Include="../RemoteSpace.Profiles/RemoteSpace.Profiles.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,58 @@
+name: Uno application
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: uno-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install WebAssembly toolchain
+        run: dotnet workload install wasm-tools
+      - name: Compile Uno desktop application and reusable controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/uno
+          dotnet build apps/RemoteSpace.App -c Release -f net10.0-desktop 2>&1 | tee artifacts/uno/desktop-build.log
+      - name: Publish Uno browser application
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish apps/RemoteSpace.App -c Release -f net10.0-browserwasm 2>&1 | tee artifacts/uno/browser-build.log
+          site=$(find apps/RemoteSpace.App/bin/Release/net10.0-browserwasm -path '*/wwwroot/index.html' -print -quit)
+          test -n "$site"
+          mkdir -p artifacts/browser
+          cp -a "$(dirname "$site")/." artifacts/browser/
+          touch artifacts/browser/.nojekyll
+      - name: Pack reusable Uno controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet pack src/RemoteSpace.Controls -c Release --no-build -o artifacts/controls
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uno-build-logs
+          path: artifacts/uno
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uno-browser
+          path: artifacts/browser
+          include-hidden-files: true
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uno-controls
+          path: artifacts/controls
