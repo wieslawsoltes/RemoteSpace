@@ -42,8 +42,11 @@ public static class Activation
         var r = new PacketReader(body); uint share = r.U32(); r.U8(); r.U8();
         int uncompressed = r.U16(); byte type = r.U8(), compression = r.U8(); ushort compressedLength = r.U16();
         if ((compression & 0x20) != 0) throw new RdpProtocolException("Server sent bulk-compressed data that was not negotiated.");
-        // MS-RDPBCGR 4.1.14: excludes the first 14 bytes of the full PDU.
-        if (uncompressed != 0 && uncompressed != body.Length - 8) throw new RdpProtocolException("Invalid uncompressed share data length.");
+        // The published client examples (MS-RDPBCGR 4.1.14/4.1.16) exclude the first
+        // 14 bytes; the server example in 4.1.21 includes the complete 18-byte header.
+        // Accept only those exact uncompressed forms, never use either field to allocate.
+        if (uncompressed != 0 && uncompressed != body.Length - 8 && uncompressed != body.Length + 6)
+            throw new RdpProtocolException($"Invalid uncompressed share data length {uncompressed} for {body.Length + 6}-byte PDU.");
         if (compressedLength != 0 && compression == 0) throw new RdpProtocolException("Unexpected compressed data length.");
         return new(share, type, r.Bytes(r.Remaining).ToArray());
     }
