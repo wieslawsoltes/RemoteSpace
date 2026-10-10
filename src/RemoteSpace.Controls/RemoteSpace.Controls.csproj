@@ -3,6 +3,7 @@
     <TargetFrameworks>net10.0-desktop;net10.0-browserwasm</TargetFrameworks>
     <UnoSingleProject>true</UnoSingleProject>
     <OutputType>Library</OutputType>
+    <IsPackable>true</IsPackable>
     <GenerateLibraryLayout>true</GenerateLibraryLayout>
     <UnoFeatures>SkiaRenderer;</UnoFeatures>
   </PropertyGroup>

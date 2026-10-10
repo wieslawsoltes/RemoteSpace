@@ -36,11 +36,25 @@ jobs:
           mkdir -p artifacts/browser
           cp -a "$(dirname "$site")/." artifacts/browser/
           touch artifacts/browser/.nojekyll
+      - name: Validate the real browser workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/remote-browser-tests
+          /tmp/remote-browser-tests/bin/pip install playwright==1.56.0
+          /tmp/remote-browser-tests/bin/playwright install --with-deps chromium
+          /tmp/remote-browser-tests/bin/python tests/browser/workspace.py artifacts/browser artifacts/browser-validation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-validation
+          path: artifacts/browser-validation
       - name: Pack reusable Uno controls
         shell: bash
         run: |
           set -euo pipefail
           dotnet pack src/RemoteSpace.Controls -c Release --no-build -o artifacts/controls
+          test -n "$(find artifacts/controls -name '*.nupkg' -print -quit)"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -31,6 +31,13 @@ internal static class ShareLengthRegressions
             bool rejected = false; try { Activation.ParseData(body.AsSpan(0, length)); } catch (RdpProtocolException) { rejected = true; }
             if (!rejected) throw new Exception("Truncated share-data header accepted.");
         }
+        foreach (ushort spare in new ushort[] { 8, 12, 26, ushort.MaxValue })
+        {
+            var uncompressed = (byte[])body.Clone(); BinaryPrimitives.WriteUInt16LittleEndian(uncompressed.AsSpan(10), spare);
+            if (!Activation.ParseData(uncompressed).Body.SequenceEqual(body.AsSpan(12).ToArray()))
+                throw new Exception("Unused compressed length changed uncompressed payload bounds.");
+        }
+        Console.WriteLine("PASS 4 unused compressed-length envelope regressions");
         body[9] = 0x20;
         bool compressedRejected = false; try { Activation.ParseData(body); } catch (RdpProtocolException) { compressedRejected = true; }
         if (!compressedRejected) throw new Exception("Unnegotiated bulk compression accepted.");
