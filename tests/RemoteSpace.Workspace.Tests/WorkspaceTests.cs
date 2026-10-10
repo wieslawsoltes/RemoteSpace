@@ -13,7 +13,7 @@ static class WorkspaceTests
         check(input.KeyUp(0x41) == new RemoteInput(InputKind.ScanCode, 0x8000, 0x1e), "input A release");
         check(input.KeyUp(0x41) is null, "unmatched release ignored");
         check(input.KeyDown(0xa3)?.Flags == 0x100, "right control extended flag");
-        input.Button(0x1000, true, 9, 10); input.Move(20, 30);
+        check(input.Button(0x1000, true, 9, 10)?.Flags == 0x9800, "positioned pointer press includes MOVE for peers requiring explicit cursor movement"); input.Move(20, 30);
         var release = input.ReleaseAll();
         check(release.Length == 2 && release[0].Flags == 0x8100 && release[1].X == 20 && release[1].Y == 30, "focus loss releases keyboard and mouse at latest position");
         check(input.ReleaseAll().Length == 0, "releasing twice is idempotent");

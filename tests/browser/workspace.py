@@ -31,8 +31,8 @@ async def run(site: Path, output: Path):
         try:
             await page.goto(f'http://127.0.0.1:{server.server_port}/', wait_until='domcontentloaded')
             await asyncio.wait_for(ready.wait(), 120)
-            # Exercise the supported screen-reader activation entry point if the host
-            # initialized before the app's auto-enable preference was applied.
+            # Activate accessibility after the real window has loaded, just as a
+            # screen-reader user does; avoid early-host activation races.
             enabler = page.get_by_role('button', name='Enable accessibility', exact=True)
             if await enabler.count(): await enabler.press('Enter')
             await page.wait_for_timeout(1000)

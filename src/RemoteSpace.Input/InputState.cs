@@ -37,7 +37,7 @@ public sealed class InputState
         if (buttonFlag is not (0x1000 or 0x2000 or 0x4000)) throw new ArgumentOutOfRangeException(nameof(buttonFlag));
         _x = x; _y = y;
         if (down ? !_buttons.Add(buttonFlag) : !_buttons.Remove(buttonFlag)) return null;
-        return new(InputKind.Pointer, (ushort)(buttonFlag | (down ? 0x8000 : 0)), 0, x, y);
+        return new(InputKind.Pointer, (ushort)(0x0800 | buttonFlag | (down ? 0x8000 : 0)), 0, x, y);
     }
     public RemoteInput[] Wheel(int delta, ushort x, ushort y)
     {

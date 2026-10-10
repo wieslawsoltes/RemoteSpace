@@ -52,6 +52,7 @@ session.ClipboardReceived += text => Console.WriteLine("CLIPBOARD received " + t
 Task running = session.RunAsync(options, new SessionCredentials(user, password), deadline.Token);
 await AwaitOrFailure(active.Task); await AwaitOrFailure(pixels.Task);
 await Task.Delay(3000, deadline.Token);
+await session.SendInputAsync(new(InputKind.Pointer, 0x0800, 0, 100, 100), deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x8000 | 0x1000, 0, 100, 100), deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x1000, 0, 100, 100), deadline.Token);
 // Type a shell command into the real xterm. The CI job independently checks the resulting remote file.
