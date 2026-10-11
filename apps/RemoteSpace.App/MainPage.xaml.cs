@@ -98,7 +98,7 @@ public sealed partial class MainPage : Page
     private async Task ShowDialog(string title, object content)
     {
         if (_dialogOpen) return; _dialogOpen = true;
-        try { await new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = content, CloseButtonText = "Close" }.ShowAsync(); }
+        try { await new AccessibleInfoDialog(title, content) { XamlRoot = XamlRoot }.ShowAsync(); }
         catch (Exception e) { ShowError(e.Message); }
         finally { _dialogOpen = false; }
     }
