@@ -82,10 +82,11 @@ app.Map("/session", async context =>
         async Task SendLoop()
         {
             long sentGeneration = -1;
+            using var surfaceWriter = new BridgeSurfaceWriter();
             while (await wake.Reader.WaitToReadAsync(lifetime.Token))
             {
                 while (wake.Reader.TryRead(out _)) { }
-                frames.TryTake(out var frame);
+                frames.TryTakeBatch(out var frame);
                 if (frame is not null && frame.Generation != sentGeneration)
                 {
                     await socket.SendAsync(BridgeWire.Control(new() { Type = "size", Width = frame.Size.Width, Height = frame.Size.Height }).AsMemory(), WebSocketMessageType.Text, true, lifetime.Token);
@@ -98,9 +99,9 @@ app.Map("/session", async context =>
                     try { await socket.SendAsync(packet.Payload.AsMemory(), WebSocketMessageType.Text, true, lifetime.Token); }
                     finally { Interlocked.Add(ref queuedBytes, -packet.Payload.Length); }
                 }
-                if (frame?.Update is { } update)
-                    foreach (var part in BridgeWire.Split(update))
-                        await socket.SendAsync(BridgeWire.Surface(part).AsMemory(), WebSocketMessageType.Binary, true, lifetime.Token);
+                if (frame is not null)
+                    foreach (var update in frame.Updates)
+                        await surfaceWriter.SendAsync(socket, update, lifetime.Token);
             }
         }
         async Task ReceiveLoop()
