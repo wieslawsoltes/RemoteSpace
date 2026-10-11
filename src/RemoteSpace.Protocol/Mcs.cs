@@ -10,6 +10,9 @@ public sealed record ChannelData(ushort Initiator, ushort Channel, byte[] Payloa
 public static class Mcs
 {
     public const ushort UserBase = 1001;
+    // Independent RemoteSpace protocol build, not a Windows OS version. Build 1
+    // selects pre-resize compatibility behavior in XRDP <= 0.9.24 (build <= 419).
+    public const uint ClientProtocolBuild = 1000;
     private static byte[] Domain(params uint[] values)
     {
         var w = new PacketWriter(); foreach (uint n in values) w.BerInteger(n);
@@ -20,7 +23,7 @@ public static class Mcs
         options.Validate();
         var core = new PacketWriter().U16(0xc001).U16(216).U32(0x00080004)
             .U16(options.Width).U16(options.Height).U16(0xca01).U16(0xaa03)
-            .U32(options.KeyboardLayout).U32(1);
+            .U32(options.KeyboardLayout).U32(ClientProtocolBuild);
         byte[] name = Encoding.Unicode.GetBytes("RemoteSpace");
         core.Bytes(name).Zeros(32 - name.Length).U32(4).U32(0).U32(12).Zeros(64)
             .U16(0xca01).U16(1).U32(0).U16(options.BitsPerPixel).U16(3).U16(1)
@@ -91,7 +94,7 @@ public static class Mcs
                     if ((count & 1) != 0) b.U16();
                     if (channels.Any(c => c < UserBase || c == global) || channels.Distinct().Count() != count) throw new RdpProtocolException("Invalid static channel IDs.");
                     b.End(); break;
-                default: break; // Extensible, length-delimited GCC blocks.
+                default: break;
             }
         }
         if (version == 0 || !securitySeen || channels is null) throw new RdpProtocolException("Required server settings are missing.");

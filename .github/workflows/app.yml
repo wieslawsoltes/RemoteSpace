@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          dotnet pack src/RemoteSpace.Controls -c Release --no-build -o artifacts/controls
+          dotnet pack src/RemoteSpace.Controls -c Release -o artifacts/controls
           test -n "$(find artifacts/controls -name '*.nupkg' -print -quit)"
       - uses: actions/upload-artifact@v4
         if: always()
