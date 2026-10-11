@@ -64,12 +64,14 @@ async def edit(page, label, value):
                 raise AssertionError(f'{label}: the control did not acknowledge text entry')
             await asyncio.sleep(.02)
     try:
-        if not await box.count():
+        bounds = await box.bounding_box() if await box.count() else None
+        if not bounds or bounds["width"] <= 0 or bounds["height"] <= 0:
             expansion = page.locator('button[xamlautomationid="ExpanderToggleButton"]')
             if await expansion.count():
                 await expansion.press('Space')
                 await expect(expansion).to_have_attribute('aria-pressed', 'true')
-        await expect(box).to_be_attached(timeout=30000)
+        # A semantic peer is not usable until it has positive layout bounds.
+        await expect(box).to_be_visible(timeout=30000)
         await box.focus()
         await checkpoint()
         await box.press('Control+a')

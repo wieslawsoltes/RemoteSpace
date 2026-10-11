@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using RemoteSpace.Core;
 using RemoteSpace.Profiles;
@@ -29,14 +30,26 @@ public sealed class ProfileEditor : UserControl
         AutomationProperties.SetHelpText(_host, "An explicit port in the PC address overrides the Port setting. Use brackets for IPv6 with a port.");
         body.Children.Add(_host);
         var advanced = new StackPanel { Spacing = 12 };
-        foreach (var element in new FrameworkElement[] { _name, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard }) advanced.Children.Add(element);
-        // Uno Skia can expose zero-sized semantic peers for collapsed Expander
-        // content. Detach the content, retaining the controls and their values,
-        // so keyboard/screen-reader focus cannot target invisible fields.
+        Control[] fields = [_name, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard];
+        foreach (var element in fields) advanced.Children.Add(element);
+        // Skia registers semantic peers on property changes even before attachment.
+        // Detachment alone does not hide those peers. Explicitly hide each field
+        // from both layout and accessibility until the user's expansion command.
         var expansion = new Expander { Header = "Additional settings", IsExpanded = profile is not null, HorizontalAlignment = HorizontalAlignment.Stretch };
-        expansion.Expanding += (_, _) => expansion.Content = advanced;
-        expansion.Collapsed += (_, _) => expansion.Content = null;
-        expansion.Content = expansion.IsExpanded ? advanced : null;
+        void ShowAdditionalSettings(bool visible)
+        {
+            foreach (var field in fields)
+            {
+                field.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+                field.IsTabStop = visible;
+                AutomationProperties.SetAccessibilityView(field, visible ? AccessibilityView.Content : AccessibilityView.Raw);
+            }
+            advanced.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            expansion.Content = visible ? advanced : null;
+        }
+        expansion.Expanding += (_, _) => ShowAdditionalSettings(true);
+        expansion.Collapsed += (_, _) => ShowAdditionalSettings(false);
+        ShowAdditionalSettings(expansion.IsExpanded);
         body.Children.Add(expansion);
         body.Children.Add(new TextBlock { Text = "Passwords are requested only when connecting and are never saved. Certificate trust is checked; unknown certificates require an explicit fingerprint obtained from the administrator.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
         Content = new ScrollViewer { Content = body, MaxHeight = 530, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
