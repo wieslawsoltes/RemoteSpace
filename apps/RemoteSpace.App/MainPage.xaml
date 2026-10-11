@@ -42,7 +42,7 @@
               </StackPanel>
             </Grid>
           </Grid>
-          <TabView x:Name="Sessions" Visibility="Collapsed" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
+          <TabView VerticalAlignment="Stretch" HorizontalAlignment="Stretch" x:Name="Sessions" Visibility="Collapsed" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
           <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed"><StackPanel x:Name="SettingsBody" Spacing="16" MaxWidth="720" HorizontalAlignment="Left" /></ScrollViewer>
           <StackPanel x:Name="AppsPanel" Visibility="Collapsed" Spacing="16" MaxWidth="650" HorizontalAlignment="Left" Margin="0,24,0,0">
             <TextBlock Text="Remote apps and cloud workspaces" FontSize="20" FontWeight="SemiBold" />

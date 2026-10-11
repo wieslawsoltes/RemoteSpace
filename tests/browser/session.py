@@ -68,6 +68,16 @@ async def run(site, output):
                 if isinstance(payload,str) and json.loads(payload).get('Type')=='input': metrics['input_packets']+=1
             def socket(ws): ws.on('framereceived',received);ws.on('framesent',sent)
             page.on('websocket',socket)
+            async def rendered(name):
+                until=time.monotonic()+20
+                while True:
+                    await page.screenshot(path=str(output/name))
+                    verified=subprocess.run(['python3','tests/browser/assert_pixels.py',str(output/name)],capture_output=True,text=True)
+                    if verified.returncode == 0:
+                        print(verified.stdout.strip(),flush=True);return
+                    if time.monotonic()>until:
+                        raise AssertionError('Remote pixels were received but not visibly presented: '+verified.stderr)
+                    await asyncio.sleep(.25)
             try:
                 await boot(page,origin+'/')
                 for supplied, host in [(token+'invalid','127.0.0.1'),(token,'not-allowed.invalid')]:
@@ -105,7 +115,8 @@ async def run(site, output):
                     if time.monotonic()>until: raise AssertionError('No real desktop surface data reached the browser.')
                     await asyncio.sleep(.1)
                 await page.wait_for_timeout(1500)
-                await page.screenshot(path=str(output/'01-live-desktop.png'))
+                await rendered('01-live-desktop.png')
+                passed('Skia visibly presents the real remote terminal and desktop background')
                 # A socket can deliver bytes before the managed receiver faults.
                 # Never count that as a usable remote desktop.
                 await expect(page.get_by_role('tab',name='Loopback desktop',exact=True)).to_be_attached()
@@ -135,7 +146,7 @@ async def run(site, output):
                     if time.monotonic()>until: raise AssertionError('Resized desktop did not deliver new pixels.')
                     await asyncio.sleep(.1)
                 await page.wait_for_timeout(1000)
-                await page.screenshot(path=str(output/'02-resized-desktop.png'))
+                await rendered('02-resized-desktop.png')
                 passed('Browser resolution command produces server-confirmed 1024x768 pixels')
                 if errors: raise AssertionError('Uncaught browser errors: '+'\n'.join(errors))
                 passed('No uncaught JavaScript or WASM session errors')
