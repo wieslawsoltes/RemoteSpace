@@ -24,7 +24,7 @@ public sealed partial class RdpSession
         {
             // A cancelled partial static-channel message cannot safely be followed
             // by a new FIRST fragment. End the session instead of corrupting the peer.
-            _stop.Cancel(); _tcp?.Dispose(); throw;
+            StopTransport(); throw;
         }
     }
     private async ValueTask ProcessClipboardAsync(ClipboardPacket packet, CancellationToken ct)

@@ -26,7 +26,7 @@ public sealed partial class BridgeSession : IRemoteInputBatch, IRemoteInputCapab
             foreach (var input in inputs)
                 await _socket.SendAsync(BridgeWire.Control(new() { Type = "input", Input = input }).AsMemory(), System.Net.WebSockets.WebSocketMessageType.Text, true, ct);
         }
-        catch { _stop.Cancel(); _socket.Abort(); throw; }
+        catch { StopTransport(); throw; }
         finally { _writer.Release(); }
     }
 }

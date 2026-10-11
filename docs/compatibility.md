@@ -8,7 +8,7 @@ This document describes source implementation scope, not blanket Windows App par
 | NLA / CredSSP | ASN.1 exchange, channel binding and platform authentication integration | Codec/security-policy tests exist; no live Windows NLA/domain matrix is established |
 | Graphics | 16/24-bit bitmap path, interleaved RLE, fast-path assembly, framebuffer bounds | No modern GFX/AVC/RemoteFX/progressive/bulk-compressed graphics pipeline |
 | Cursor | Color/ARGB and monochrome AND/XOR behavior, cache and position | Full device/OS cursor interaction matrix is not established |
-| Input | Keyboard scan codes, Unicode, pointer buttons/wheel, focus-loss releases, secure-attention sequence | Browser uses virtual-key fallback; IME, touch/pen and every keyboard layout are not at Windows App parity |
+| Input | Negotiated input batches, scan codes/Unicode, five pointer buttons and horizontal/vertical wheel, Pause/PrintScreen, focus-loss releases and secure-attention sequence | Browser uses virtual-key fallback and adjacent pending motion coalescing; IME/touch/pen and every keyboard/device layout are not at parity |
 | Clipboard | Opt-in Unicode text channel and explicit local clipboard commands; bidirectional browser/remote test | No clipboard file transfer, rich formats or drive redirection; 1 MiB UTF-16 / 2 MiB encoded bridge-message limits |
 | Dynamic channels | v1/v2 negotiation, variable IDs, fragmentation, bounded per-channel state, v2 priorities | v3 compression, UDP/multitransport and unrelated dynamic-channel services are not advertised |
 | Display control | Server capabilities, full-layout codecs, bounded monitor geometry, remote-resolution presets and reactivation | Multi-monitor wire layout support is not a full per-monitor native-window UI or browser multi-screen implementation |
@@ -26,3 +26,5 @@ Windows 365, Azure Virtual Desktop, Dev Box, organizational sign-in and feed dis
 Unsupported `.rdp` settings produce import warnings. Unsupported protocol paths are rejected rather than treated as working features. This preview is not ready to replace an enterprise remote-access deployment without further interoperability, security, load and platform testing.
 
 Performance measurements and correctness changes are documented in [performance and review](performance-and-review.md).
+
+Input batching, additional input formats and disposal fixes are documented in [input and lifecycle review](input-and-lifecycle-review.md).

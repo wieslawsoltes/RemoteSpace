@@ -12,9 +12,11 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
     private readonly ClientWebSocket _socket = new();
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
-    private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private int _started;
-    public SessionState State { get; private set; }
+    private readonly SessionLifetime _lifetime = new();
+    private readonly object _stopGate = new();
+    private bool _released;
+    private int _state;
+    public SessionState State => (SessionState)Volatile.Read(ref _state);
     public event Action<SessionState>? StateChanged;
     public event Action<DesktopSize>? DesktopResized;
     public event Action<SurfaceUpdate>? SurfaceUpdated;
@@ -31,80 +33,91 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
         _endpoint = endpoint; _token = token; _socket.Options.AddSubProtocol(BridgeWire.SubProtocol);
         if (!OperatingSystem.IsBrowser() && nativeOrigin is not null) _socket.Options.SetRequestHeader("Origin", nativeOrigin);
     }
-    private void SetState(SessionState state) { State = state; StateChanged?.Invoke(state); }
+    private void SetState(SessionState state) { Volatile.Write(ref _state, (int)state); StateChanged?.Invoke(state); }
     public async Task RunAsync(ConnectionOptions options, SessionCredentials credentials, CancellationToken cancellationToken = default)
     {
-        options.Validate(); if (Interlocked.Exchange(ref _started, 1) != 0) throw new InvalidOperationException("Create a new bridge session to reconnect.");
-        using var ct = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, cancellationToken);
-        string operation = "connecting";
+        options.Validate(); ArgumentNullException.ThrowIfNull(credentials);
+        _lifetime.Start();
         try
         {
-            SetState(SessionState.Connecting);
-            using var connect = CancellationTokenSource.CreateLinkedTokenSource(ct.Token); connect.CancelAfter(options.ConnectTimeout);
-            await _socket.ConnectAsync(_endpoint, connect.Token);
-            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, EnableGraphicsOutputControl = true, EnableInputBatches = true, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
-            try { await SendAsync(request, connect.Token); }
-            finally { CryptographicOperations.ZeroMemory(request); _token = null; }
-            bool established = false;
-            while (!ct.IsCancellationRequested)
+            using var ct = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, cancellationToken);
+            string operation = "connecting";
+            try
             {
-                operation = "receiving a frame";
-                var packet = await BridgeWire.ReceiveAsync(_socket, established ? ct.Token : connect.Token); if (packet is null) break;
-                if (packet.Binary) { operation = "applying desktop pixels"; SurfaceUpdated?.Invoke(BridgeWire.ParseSurface(packet.Payload)); continue; }
-                var message = BridgeWire.ParseControl(packet.Payload);
-                operation = "processing " + message.Type;
-                switch (message.Type)
+                SetState(SessionState.Connecting);
+                using var connect = CancellationTokenSource.CreateLinkedTokenSource(ct.Token); connect.CancelAfter(options.ConnectTimeout);
+                await _socket.ConnectAsync(_endpoint, connect.Token);
+                byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, EnableGraphicsOutputControl = true, EnableInputBatches = true, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
+                try { await SendAsync(request, connect.Token); }
+                finally { CryptographicOperations.ZeroMemory(request); _token = null; }
+                bool established = false;
+                while (!ct.IsCancellationRequested)
                 {
-                    case "state":
-                        if (!Enum.IsDefined(message.State)) throw new InvalidDataException("Unknown session state.");
-                        if (message.State == SessionState.Active) { established = true; connect.CancelAfter(Timeout.InfiniteTimeSpan); }
-                        SetState(message.State); break;
-                    case "display":
-                        var caps = message.DisplayCapabilities;
-                        if (caps is not null && (caps.MaximumMonitors is < 1 or > DisplayLayout.MaximumMonitors || caps.MaximumArea is < 1 or > DisplayLayout.MaximumArea)) throw new InvalidDataException("Invalid bridge display capabilities.");
-                        DisplayCapabilities = caps; DisplayCapabilitiesChanged?.Invoke(caps); break;
-                    case "input-capabilities":
-                        _inputBatches = message.EnableInputBatches;
-                        InputCapabilities = message.InputCapabilities; InputCapabilitiesChanged?.Invoke(InputCapabilities); break;
-                    case "graphics-state":
-                        if (message.OutputEnabled is not { } enabled) throw new InvalidDataException("Missing graphics-output state.");
-                        OutputEnabled = enabled; OutputEnabledChanged?.Invoke(enabled);
-                        if (_requestedOutput == enabled) _outputAck?.TrySetResult(); break;
-                    case "graphics-capabilities":
-                        GraphicsOutputCapabilities = message.GraphicsOutputCapabilities;
-                        GraphicsOutputCapabilitiesChanged?.Invoke(GraphicsOutputCapabilities); break;
-                    case "size":
-                        if (message.Width is < 1 or > 8192 || message.Height is < 1 or > 8192 || (long)message.Width * message.Height > 16_777_216) throw new InvalidDataException("Invalid desktop dimensions.");
-                        DesktopResized?.Invoke(new(message.Width, message.Height)); break;
-                    case "diagnostic": Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, message.Stage ?? "Bridge", message.Message ?? "")); break;
-                    case "clipboard": ClipboardReceived?.Invoke(message.Text ?? ""); break;
-                    case "cursor": if (message.Cursor is not null) CursorChanged?.Invoke(message.Cursor); break;
-                    case "position": CursorPositionChanged?.Invoke(checked((ushort)message.Width), checked((ushort)message.Height)); break;
-                    case "error": throw new IOException(message.Message ?? "The bridge rejected the session.");
-                    default: throw new InvalidDataException("Unknown bridge control message.");
+                    operation = "receiving a frame";
+                    var packet = await BridgeWire.ReceiveAsync(_socket, established ? ct.Token : connect.Token); if (packet is null) break;
+                    if (packet.Binary) { operation = "applying desktop pixels"; SurfaceUpdated?.Invoke(BridgeWire.ParseSurface(packet.Payload)); continue; }
+                    var message = BridgeWire.ParseControl(packet.Payload);
+                    operation = "processing " + message.Type;
+                    switch (message.Type)
+                    {
+                        case "state":
+                            if (!Enum.IsDefined(message.State)) throw new InvalidDataException("Unknown session state.");
+                            if (message.State == SessionState.Active) { established = true; connect.CancelAfter(Timeout.InfiniteTimeSpan); }
+                            SetState(message.State); break;
+                        case "display":
+                            var caps = message.DisplayCapabilities;
+                            if (caps is not null && (caps.MaximumMonitors is < 1 or > DisplayLayout.MaximumMonitors || caps.MaximumArea is < 1 or > DisplayLayout.MaximumArea)) throw new InvalidDataException("Invalid bridge display capabilities.");
+                            DisplayCapabilities = caps; DisplayCapabilitiesChanged?.Invoke(caps); break;
+                        case "input-capabilities":
+                            _inputBatches = message.EnableInputBatches;
+                            InputCapabilities = message.InputCapabilities; InputCapabilitiesChanged?.Invoke(InputCapabilities); break;
+                        case "graphics-state":
+                            if (message.OutputEnabled is not { } enabled) throw new InvalidDataException("Missing graphics-output state.");
+                            OutputEnabled = enabled; OutputEnabledChanged?.Invoke(enabled);
+                            if (_requestedOutput == enabled) _outputAck?.TrySetResult(); break;
+                        case "graphics-capabilities":
+                            GraphicsOutputCapabilities = message.GraphicsOutputCapabilities;
+                            GraphicsOutputCapabilitiesChanged?.Invoke(GraphicsOutputCapabilities); break;
+                        case "size":
+                            if (message.Width is < 1 or > 8192 || message.Height is < 1 or > 8192 || (long)message.Width * message.Height > 16_777_216) throw new InvalidDataException("Invalid desktop dimensions.");
+                            DesktopResized?.Invoke(new(message.Width, message.Height)); break;
+                        case "diagnostic": Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, message.Stage ?? "Bridge", message.Message ?? "")); break;
+                        case "clipboard": ClipboardReceived?.Invoke(message.Text ?? ""); break;
+                        case "cursor": if (message.Cursor is not null) CursorChanged?.Invoke(message.Cursor); break;
+                        case "position": CursorPositionChanged?.Invoke(checked((ushort)message.Width), checked((ushort)message.Height)); break;
+                        case "error": throw new IOException(message.Message ?? "The bridge rejected the session.");
+                        default: throw new InvalidDataException("Unknown bridge control message.");
+                    }
                 }
             }
+            catch (Exception) when (ct.IsCancellationRequested) { }
+            catch (Exception e)
+            {
+                // WebAssembly can report an empty Message for native or JS failures.
+                // Retain the failed operation and exception types instead of a blank error bar.
+                var details = new List<string>();
+                for (Exception? cause = e; cause is not null && details.Count < 8; cause = cause.InnerException)
+                    details.Add(cause.GetType().Name + (string.IsNullOrEmpty(cause.Message) ? "" : ": " + cause.Message));
+                string summary = "Bridge failure while " + operation + ": " + string.Join(" -> ", details);
+                foreach (string secret in new[] { credentials.Password, _token ?? "" })
+                    if (secret.Length > 0) summary = summary.Replace(secret, "[redacted]", StringComparison.Ordinal);
+                SetState(SessionState.Faulted); Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, "Error", summary));
+                throw new IOException(summary, e);
+            }
+            finally { StopTransport(); _token = null; DisplayCapabilities = null; InputCapabilities = null; GraphicsOutputCapabilities = null; _outputAck?.TrySetCanceled(); if (State != SessionState.Faulted) SetState(SessionState.Disconnected); }
         }
-        catch (Exception) when (ct.IsCancellationRequested) { }
-        catch (Exception e)
-        {
-            // WebAssembly can report an empty Message for native or JS failures.
-            // Retain the failed operation and exception types instead of a blank error bar.
-            var details = new List<string>();
-            for (Exception? cause = e; cause is not null && details.Count < 8; cause = cause.InnerException)
-                details.Add(cause.GetType().Name + (string.IsNullOrEmpty(cause.Message) ? "" : ": " + cause.Message));
-            string summary = "Bridge failure while " + operation + ": " + string.Join(" -> ", details);
-            foreach (string secret in new[] { credentials.Password, _token ?? "" })
-                if (secret.Length > 0) summary = summary.Replace(secret, "[redacted]", StringComparison.Ordinal);
-            SetState(SessionState.Faulted); Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, "Error", summary));
-            throw new IOException(summary, e);
-        }
-        finally { _socket.Abort(); _token = null; DisplayCapabilities = null; GraphicsOutputCapabilities = null; _outputAck?.TrySetCanceled(); if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult(); }
+        finally { _lifetime.Finish(); }
     }
     private async ValueTask SendAsync(byte[] data, CancellationToken ct)
     {
         await _writer.WaitAsync(ct);
-        try { await _socket.SendAsync(data.AsMemory(), WebSocketMessageType.Text, true, ct); }
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_stop.IsCancellationRequested) throw new OperationCanceledException("The session is stopping.");
+            try { await _socket.SendAsync(data.AsMemory(), WebSocketMessageType.Text, true, ct); }
+            catch { StopTransport(); throw; }
+        }
         finally { _writer.Release(); }
     }
     public ValueTask SendInputAsync(RemoteInput input, CancellationToken cancellationToken = default)
@@ -115,17 +128,27 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
     }
     public ValueTask SendClipboardAsync(string text, CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(text);
         if (State != SessionState.Active || text.Length > 524287 || text.Contains('\0')) throw new InvalidOperationException("Clipboard is unavailable or the text exceeds the limit.");
         return SendAsync(BridgeWire.Control(new() { Type = "clipboard", Text = text }), cancellationToken);
     }
+    private void StopTransport()
+    {
+        lock (_stopGate)
+        {
+            if (_released) return;
+            try { _stop.Cancel(); } finally { _socket.Abort(); }
+        }
+    }
     public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        if (State is not (SessionState.Disconnected or SessionState.Faulted)) SetState(SessionState.Disconnecting);
-        _stop.Cancel(); _socket.Abort(); return ValueTask.CompletedTask;
+        StopTransport();
+        if (State is not (SessionState.Disconnected or SessionState.Disconnecting or SessionState.Faulted)) SetState(SessionState.Disconnecting);
+        return ValueTask.CompletedTask;
     }
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => _lifetime.DisposeAsync(() => DisconnectAsync(), () =>
     {
-        await DisconnectAsync(); if (_started != 0) await _completed.Task;
-        _socket.Dispose(); _writer.Dispose(); _stop.Dispose();
-    }
+        lock (_stopGate) { _released = true; _socket.Dispose(); _stop.Dispose(); }
+        // Do not dispose a semaphore that an already-queued public write can release.
+    });
 }
