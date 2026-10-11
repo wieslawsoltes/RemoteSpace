@@ -73,7 +73,13 @@ public sealed class DeviceCatalog
             _ => items.OrderBy(d => d.Profile.Name, StringComparer.OrdinalIgnoreCase)
         }).ThenBy(d => d.Profile.Id).ToArray();
     }
-    public string Serialize() => JsonSerializer.Serialize(_document, WorkspaceJsonContext.Default.WorkspaceDocument);
+    public string Serialize()
+    {
+        string json = JsonSerializer.Serialize(_document, WorkspaceJsonContext.Default.WorkspaceDocument);
+        if (System.Text.Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes)
+            throw new FormatException("The workspace exceeds the storage limit. Remove devices or shorten their fields before saving.");
+        return json;
+    }
     public static DeviceCatalog Parse(string json)
     {
         ArgumentNullException.ThrowIfNull(json);

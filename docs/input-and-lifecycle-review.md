@@ -26,6 +26,18 @@ Transport cancellation occurs before disconnect notifications. Failures after en
 
 Lifecycle tests exercise concurrent disposal, reentrant observers, stop/release failures, disposal before start, pre-cancellation and throwing observers on the actual native/bridge session classes. The observer tests fail before connecting; they do not probe external machines. Live browser checks separately exercise the full authorized loopback connection lifecycle.
 
+## Additional review fixes
+
+Physical-key fallback lookup now uses a read-only constant span instead of allocating
+an array for every lookup. A warm-up-aware test measures 100,000 actual lookups.
+
+Workspace serialization now enforces the same encoded-byte limit as parsing. Previously,
+individually valid device fields and counts could expand beyond 16 MiB after JSON
+escaping, allowing a saved document that the next load would reject. Serialization
+now fails before a storage adapter replaces the old document. The regression constructs
+this case with 3,000 individually valid Unicode profiles, checks that data remains
+available in memory, and verifies smaller documents still round trip.
+
 ## Review boundaries
 
 Reviewed changes cover input negotiation/validation, event serialization, bridge rate accounting, bounded queues, reactivation waiters, control attachment, writer cancellation and session disposal. Existing graphics, clipboard, security and protocol regression suites remain required. Residual validation includes sustained network impairment, all callback/reentrancy patterns, live Windows NLA/licensing versions, hardware input/IME/touch/pen matrices and security auditing. Applications must not synchronously block an event callback waiting for the same session's receive loop to finish.
