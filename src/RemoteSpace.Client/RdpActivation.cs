@@ -29,7 +29,9 @@ public sealed partial class RdpSession
             switch (share.Type)
             {
                 case 1:
-                    _desktop = Activation.ParseDemand(share.Body); ConfigureGraphicsOutput(share.Body); SetState(SessionState.Establishing);
+                    SetState(SessionState.Establishing);
+                    _desktop = Activation.ParseDemand(share.Body); ConfigureGraphicsOutput(share.Body);
+                    InputCapabilities = _desktop.InputCapabilities; InputCapabilitiesChanged?.Invoke(InputCapabilities);
                     DesktopResized?.Invoke(new(_desktop.Width, _desktop.Height));
                     await SendShareAsync(Activation.Confirm(_desktop, _user, _options!.KeyboardLayout), ct);
                     await SendShareAsync(Activation.Synchronize(_desktop.ShareId, _user, share.Source), ct);

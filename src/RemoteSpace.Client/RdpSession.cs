@@ -16,7 +16,9 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
 {
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
-    private readonly TaskCompletionSource _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly SessionLifetime _lifetime = new();
+    private readonly object _stopGate = new();
+    private bool _released;
     private readonly ChannelAssembler _clipboardFragments = new();
     private readonly FastPathAssembler _fastPath = new();
     private readonly CursorDecoder _cursors = new();
@@ -26,9 +28,9 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
     private ConnectionOptions? _options;
     private DemandActive? _desktop;
     private ushort _user, _global, _clipboardChannel;
-    private int _started;
     private uint[]? _palette;
-    public SessionState State { get; private set; }
+    private int _state;
+    public SessionState State => (SessionState)Volatile.Read(ref _state);
     public event Action<SessionState>? StateChanged;
     public event Action<DesktopSize>? DesktopResized;
     public event Action<SurfaceUpdate>? SurfaceUpdated;
@@ -38,7 +40,7 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
     public event Action<ushort, ushort>? CursorPositionChanged;
     public long ReceivedBytes { get; private set; }
     public long DecodedPixels { get; private set; }
-    private void SetState(SessionState state) { State = state; StateChanged?.Invoke(state); }
+    private void SetState(SessionState state) { Volatile.Write(ref _state, (int)state); StateChanged?.Invoke(state); }
     private void Log(string stage, string message) => Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, stage, message));
 
     private async ValueTask<byte[]> ReadMcsAsync(CancellationToken ct)
@@ -50,7 +52,13 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
     private async ValueTask WriteAsync(byte[] data, CancellationToken ct)
     {
         await _writer.WaitAsync(ct);
-        try { await (_stream ?? throw new InvalidOperationException("The transport is not connected.")).WriteAsync(data, ct); }
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            if (_stop.IsCancellationRequested) throw new OperationCanceledException("The session is stopping.");
+            try { await (_stream ?? throw new InvalidOperationException("The transport is not connected.")).WriteAsync(data, ct); }
+            catch { StopTransport(); throw; } // A partial TPKT cannot be followed by a fresh packet.
+        }
         finally { _writer.Release(); }
     }
     private ValueTask WriteMcsAsync(byte[] data, CancellationToken ct) => WriteAsync(Framing.Data(data), ct);
@@ -120,20 +128,24 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
             default: throw new RdpProtocolException("Unsupported pointer message.");
         }
     }
-    public ValueTask SendInputAsync(RemoteInput input, CancellationToken cancellationToken = default)
+    private void StopTransport()
     {
-        if (State != SessionState.Active || _desktop is null) throw new InvalidOperationException("The remote desktop is not active.");
-        if (input.Kind == InputKind.Pointer && (input.X >= _desktop.Width || input.Y >= _desktop.Height)) throw new ArgumentOutOfRangeException(nameof(input));
-        return SendShareAsync(Activation.Input(_desktop.ShareId, _user, input), cancellationToken);
+        lock (_stopGate)
+        {
+            if (_released) return;
+            try { _stop.Cancel(); } finally { _tcp?.Dispose(); }
+        }
     }
     public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        if (State is not (SessionState.Disconnected or SessionState.Faulted)) SetState(SessionState.Disconnecting);
-        _stop.Cancel(); _tcp?.Dispose(); return ValueTask.CompletedTask;
+        StopTransport();
+        if (State is not (SessionState.Disconnected or SessionState.Disconnecting or SessionState.Faulted)) SetState(SessionState.Disconnecting);
+        return ValueTask.CompletedTask;
     }
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => _lifetime.DisposeAsync(() => DisconnectAsync(), () =>
     {
-        await DisconnectAsync(); if (Volatile.Read(ref _started) != 0) await _completed.Task;
-        _stop.Dispose(); _writer.Dispose();
-    }
+        lock (_stopGate) { _released = true; _tcp?.Dispose(); _stop.Dispose(); }
+        // SemaphoreSlim has no native handle unless AvailableWaitHandle is requested.
+        // Do not dispose gates while an already-queued public write can still release one.
+    });
 }

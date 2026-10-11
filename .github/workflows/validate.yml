@@ -61,6 +61,16 @@ jobs:
         run: |
           set -euo pipefail
           dotnet run --project tests/RemoteSpace.Performance.Tests -c Release 2>&1 | tee artifacts/validation/performance-tests.log
+      - name: Input negotiation and batching regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Input.Tests -c Release 2>&1 | tee artifacts/validation/input-tests.log
+      - name: Session lifecycle and observer-failure regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Lifecycle.Tests -c Release 2>&1 | tee artifacts/validation/lifecycle-tests.log
       - name: Pack reusable components
         shell: bash
         run: |

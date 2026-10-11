@@ -15,7 +15,8 @@ public sealed partial class RdpSession : IRemoteDisplayControl
     public event Action<DisplayCapabilities?>? DisplayCapabilitiesChanged;
     private async ValueTask SendDynamicPacketAsync(byte[] packet, CancellationToken ct)
     {
-        foreach (var part in ChannelAssembler.Fragment(packet)) await SendChannelAsync(_dynamicChannel, part, ct);
+        try { foreach (var part in ChannelAssembler.Fragment(packet)) await SendChannelAsync(_dynamicChannel, part, ct); }
+        catch { StopTransport(); throw; } // A partially sent static-channel message cannot be resumed safely.
     }
     private async ValueTask ProcessDynamicAsync(byte[] packet, CancellationToken ct)
     {
@@ -39,6 +40,12 @@ public sealed partial class RdpSession : IRemoteDisplayControl
                     _displayChannelId = null; DisplayCapabilities = null; DisplayCapabilitiesChanged?.Invoke(null); break;
             }
         }
+        finally { _dynamicWriter.Release(); }
+    }
+    private async ValueTask ResetDynamicAsync()
+    {
+        await _dynamicWriter.WaitAsync();
+        try { _dynamicChannels.Reset(); _displayChannelId = null; DisplayCapabilities = null; }
         finally { _dynamicWriter.Release(); }
     }
     public async ValueTask RequestDisplayLayoutAsync(IReadOnlyList<DisplayMonitor> monitors, CancellationToken cancellationToken = default)

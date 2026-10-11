@@ -48,7 +48,7 @@ Open the local browser app, configure your bridge endpoint under Settings, and a
 | `RemoteSpace.Graphics` | Bitmap/RLE decoding, cursor masks/composition, framebuffer, bounded latest-frame mailbox and viewport transforms |
 | `RemoteSpace.Channels` | DVC v1/v2 negotiation, bounded fragmentation, priority scheduling and display-control codecs |
 | `RemoteSpace.Client` | Direct TCP/TLS RDP session engine and channel integration |
-| `RemoteSpace.Input` | Physical-key mapping, held-input tracking, release sequences and Unicode input |
+| `RemoteSpace.Input` | Physical-key mapping, held-input tracking, bounded motion-coalescing queue, release sequences and Unicode input |
 | `RemoteSpace.Profiles` | Credential-free profiles and typed `.rdp` import/export with unsupported-setting warnings |
 | `RemoteSpace.Workspace` | Device catalog, immutable snapshots, search/sorting and versioned workspace serialization |
 | `RemoteSpace.Transport` | Browser-capable authenticated WebSocket session adapter and bounded bridge framing |
@@ -67,3 +67,5 @@ The Uno workflow publishes to GitHub Pages only from `main`, after its build and
 ## Protocol references
 
 Implementation is guided by Microsoft's public [MS-RDPBCGR](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/), [MS-CSSP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cssp/), [MS-RDPELE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpele/), [MS-RDPECLIP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/), [MS-RDPEDYC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedyc/), and [MS-RDPEDISP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/) specifications. Protocol compatibility does not imply Microsoft endorsement or entitlement to proprietary assets.
+
+Recent input and lifetime improvements, benchmarks and remaining review boundaries: [input and lifecycle review](docs/input-and-lifecycle-review.md).

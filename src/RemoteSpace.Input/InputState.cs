@@ -8,9 +8,10 @@ public sealed class InputState
 {
     private readonly Dictionary<uint, (ushort Scan, bool Extended)> _keys = new();
     private readonly HashSet<ushort> _buttons = new();
+    private readonly HashSet<ushort> _extendedButtons = new();
     private ushort _x, _y;
     public int HeldKeyCount => _keys.Count;
-    public int HeldButtonCount => _buttons.Count;
+    public int HeldButtonCount => _buttons.Count + _extendedButtons.Count;
 
     public RemoteInput? KeyDown(uint virtualKey, uint scanCode = 0, bool extended = false)
     {
@@ -39,7 +40,14 @@ public sealed class InputState
         if (down ? !_buttons.Add(buttonFlag) : !_buttons.Remove(buttonFlag)) return null;
         return new(InputKind.Pointer, (ushort)(0x0800 | buttonFlag | (down ? 0x8000 : 0)), 0, x, y);
     }
-    public RemoteInput[] Wheel(int delta, ushort x, ushort y)
+    public RemoteInput? ExtendedButton(ushort button, bool down, ushort x, ushort y)
+    {
+        if (button is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(button));
+        _x = x; _y = y;
+        if (down ? !_extendedButtons.Add(button) : !_extendedButtons.Remove(button)) return null;
+        return new(InputKind.ExtendedPointer, (ushort)(button | (down ? 0x8000 : 0)), 0, x, y);
+    }
+    public RemoteInput[] Wheel(int delta, ushort x, ushort y, bool horizontal = false)
     {
         if (delta is < -12000 or > 12000) throw new ArgumentOutOfRangeException(nameof(delta));
         _x = x; _y = y;
@@ -48,7 +56,7 @@ public sealed class InputState
         {
             int part = Math.Clamp(delta, -255, 255); delta -= part;
             // MS-RDPBCGR TS_POINTER_EVENT: signed 9-bit rotation includes PTRFLAGS_WHEEL_NEGATIVE.
-            result.Add(new(InputKind.Pointer, (ushort)(0x0200 | (part & 0x01ff)), 0, x, y));
+            result.Add(new(InputKind.Pointer, (ushort)((horizontal ? 0x0400 : 0x0200) | (part & 0x01ff)), 0, x, y));
         }
         return result.ToArray();
     }
@@ -57,7 +65,8 @@ public sealed class InputState
         var result = _keys.Values.Select(k => new RemoteInput(InputKind.ScanCode,
             (ushort)(0x8000 | (k.Extended ? 0x0100 : 0)), k.Scan)).ToList();
         result.AddRange(_buttons.Select(b => new RemoteInput(InputKind.Pointer, b, 0, _x, _y)));
-        _keys.Clear(); _buttons.Clear(); return result.ToArray();
+        result.AddRange(_extendedButtons.Select(b => new RemoteInput(InputKind.ExtendedPointer, b, 0, _x, _y)));
+        _keys.Clear(); _buttons.Clear(); _extendedButtons.Clear(); return result.ToArray();
     }
     public static RemoteInput[] UnicodeText(string text)
     {
@@ -76,6 +85,9 @@ public sealed class InputState
         }
         return result.ToArray();
     }
+    public static RemoteInput[] PauseKey() =>
+    [new(InputKind.ScanCode, 0x0200, 0x1d), new(InputKind.ScanCode, 0, 0x45),
+     new(InputKind.ScanCode, 0x8200, 0x1d), new(InputKind.ScanCode, 0x8000, 0x45)];
     public static RemoteInput[] SecureAttention() =>
     [new(InputKind.ScanCode, 0, 0x1d), new(InputKind.ScanCode, 0, 0x38), new(InputKind.ScanCode, 0x0100, 0x53),
      new(InputKind.ScanCode, 0x8100, 0x53), new(InputKind.ScanCode, 0x8000, 0x38), new(InputKind.ScanCode, 0x8000, 0x1d)];
@@ -85,8 +97,8 @@ public sealed class InputState
     public static bool TryMapKey(uint key, out (ushort Scan, bool Extended) mapped)
     {
         const string letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        ushort[] scans = [0x1e,0x30,0x2e,0x20,0x12,0x21,0x22,0x23,0x17,0x24,0x25,0x26,0x32,0x31,0x18,0x19,0x10,0x13,0x1f,0x14,0x16,0x2f,0x11,0x2d,0x15,0x2c];
-        if (key >= letters[0] && key <= letters[^1]) { mapped = (scans[key - 'A'], false); return true; }
+        ReadOnlySpan<ushort> scans = [0x1e,0x30,0x2e,0x20,0x12,0x21,0x22,0x23,0x17,0x24,0x25,0x26,0x32,0x31,0x18,0x19,0x10,0x13,0x1f,0x14,0x16,0x2f,0x11,0x2d,0x15,0x2c];
+        if (key >= letters[0] && key <= letters[^1]) { mapped = (scans[(int)(key - 'A')], false); return true; }
         if (key is >= 0x31 and <= 0x39) { mapped = ((ushort)(key - 0x31 + 2), false); return true; }
         if (key is >= 0x70 and <= 0x79) { mapped = ((ushort)(key - 0x70 + 0x3b), false); return true; }
         mapped = key switch
@@ -98,7 +110,7 @@ public sealed class InputState
             0x14 => (0x3a, false), 0x1b => (0x01, false), 0x20 => (0x39, false),
             0x21 => (0x49, true), 0x22 => (0x51, true), 0x23 => (0x4f, true), 0x24 => (0x47, true),
             0x25 => (0x4b, true), 0x26 => (0x48, true), 0x27 => (0x4d, true), 0x28 => (0x50, true),
-            0x2d => (0x52, true), 0x2e => (0x53, true), 0x30 => (0x0b, false),
+            0x2c => (0x37, true), 0x2d => (0x52, true), 0x2e => (0x53, true), 0x30 => (0x0b, false),
             0x5b => (0x5b, true), 0x5c => (0x5c, true), 0x5d => (0x5d, true),
             0x60 => (0x52, false), 0x61 => (0x4f, false), 0x62 => (0x50, false), 0x63 => (0x51, false),
             0x64 => (0x4b, false), 0x65 => (0x4c, false), 0x66 => (0x4d, false), 0x67 => (0x47, false),

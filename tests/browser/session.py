@@ -19,6 +19,7 @@ from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
 from clipboard import round_trip
 from graphics_output import validate_output_controls
+from input_events import validate_extended_input
 
 async def run(site, output):
     if os.environ.get('RDP_TEST_HOST') != '127.0.0.1':
@@ -56,14 +57,14 @@ async def run(site, output):
             page.on('console',lambda m:messages.append(m.type+': '+m.text))
             page.on('pageerror',lambda e:errors.append(str(e)))
             active, resized = asyncio.Event(), asyncio.Event()
-            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
+            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'input_batches':0,'max_input_batch':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
             def received(payload):
                 if isinstance(payload,bytes):
                     if payload.startswith(b'RSU1'):
                         metrics['surface_packets']+=1;metrics['binary_bytes']+=len(payload)
                     return
                 msg=json.loads(payload)
-                if msg.get('Type') in ('state','diagnostic','error','display'):
+                if msg.get('Type') in ('state','diagnostic','error','display','input-capabilities'):
                     metrics['server_controls'].append(msg)
                 if msg.get('Type')=='state' and msg.get('State')==6: active.set()
                 if msg.get('Type')=='size':
@@ -73,6 +74,10 @@ async def run(site, output):
                 if isinstance(payload,str):
                     message = json.loads(payload)
                     if message.get('Type')=='input': metrics['input_packets']+=1
+                    if message.get('Type')=='input-batch':
+                        count=len(message.get('Inputs') or [])
+                        metrics['input_packets']+=count;metrics['input_batches']+=1
+                        metrics['max_input_batch']=max(metrics['max_input_batch'],count)
                     if message.get('Type')=='clipboard':
                         metrics['clipboard_packets']+=1
                         metrics['clipboard_lengths'].append(len(message.get('Text') or ''))
@@ -146,6 +151,13 @@ async def run(site, output):
                     await asyncio.sleep(.2)
                 if metrics['input_packets']<20: raise AssertionError('Expected browser keyboard packets were not observed.')
                 passed('Browser keyboard input creates an independently checked file on the remote desktop')
+                await page.keyboard.press('Pause')
+                until=time.monotonic()+10
+                while metrics['max_input_batch'] < 4:
+                    if time.monotonic()>until: raise AssertionError('Pause key did not generate its ordered four-event batch.')
+                    await asyncio.sleep(.1)
+                passed('Actual browser Pause key uses negotiated ordered input batching')
+                await validate_extended_input(page, metrics, passed)
                 resolution=page.get_by_role('button',name='Remote resolution',exact=True)
                 await expect(resolution).to_be_enabled(timeout=30000)
                 await command(page,'Remote resolution')
@@ -161,6 +173,22 @@ async def run(site, output):
                 passed('Browser resolution command produces server-confirmed 1024x768 pixels')
                 await round_trip(page, origin, passed)
                 await validate_output_controls(page, metrics, output, passed)
+                # TabView's built-in close button is deliberately not a tab stop.
+                # Its semantic HTML proxy cannot focus the native button on Enter;
+                # exercise the actual canvas mouse hit instead.
+                await page.get_by_role('button',name='Close Tab',exact=True).click(force=True)
+                await command(page,'Disconnect')
+                await expect(page.get_by_role('tab',name='Loopback desktop',exact=True)).to_have_count(0,timeout=10000)
+                passed('Closing the active session drains input and removes its tab without hanging')
+                active.clear()
+                await navigate(page,'Devices')
+                await command(page,'Connect to Loopback desktop')
+                await edit(page,'Connection password',password)
+                await edit(page,'Bridge access token',token)
+                await command(page,'Connect')
+                await asyncio.wait_for(active.wait(),60)
+                await rendered('04-reconnected-desktop.png')
+                passed('Saved profile reconnects through a fresh session after explicit credential entry')
                 if errors: raise AssertionError('Uncaught browser errors: '+'\n'.join(errors))
                 passed('No uncaught JavaScript or WASM session errors')
             except BaseException:

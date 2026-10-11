@@ -23,6 +23,9 @@ public sealed class BridgeControl
     public string? Message { get; set; }
     public string? Text { get; set; }
     public RemoteInput Input { get; set; }
+    public RemoteInput[]? Inputs { get; set; }
+    public bool EnableInputBatches { get; set; }
+    public InputCapabilities? InputCapabilities { get; set; }
     public RemoteCursor? Cursor { get; set; }
     public bool EnableGraphicsOutputControl { get; set; }
     public bool? OutputEnabled { get; set; }
