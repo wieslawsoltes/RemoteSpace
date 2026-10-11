@@ -98,6 +98,7 @@ jobs:
           mkdir -p artifacts/browser-session
           sudo cat /var/log/xrdp.log > artifacts/browser-session/xrdp.log || true
           sudo cat /var/log/xrdp-sesman.log > artifacts/browser-session/sesman.log || true
+          sudo cat /home/rdptest/input-events.log > artifacts/browser-session/input-events.log || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

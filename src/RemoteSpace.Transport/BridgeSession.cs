@@ -36,6 +36,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
     {
         options.Validate(); if (Interlocked.Exchange(ref _started, 1) != 0) throw new InvalidOperationException("Create a new bridge session to reconnect.");
         using var ct = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, cancellationToken);
+        string operation = "connecting";
         try
         {
             SetState(SessionState.Connecting);
@@ -47,9 +48,11 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
             bool established = false;
             while (!ct.IsCancellationRequested)
             {
+                operation = "receiving a frame";
                 var packet = await BridgeWire.ReceiveAsync(_socket, established ? ct.Token : connect.Token); if (packet is null) break;
-                if (packet.Binary) { SurfaceUpdated?.Invoke(BridgeWire.ParseSurface(packet.Payload)); continue; }
+                if (packet.Binary) { operation = "applying desktop pixels"; SurfaceUpdated?.Invoke(BridgeWire.ParseSurface(packet.Payload)); continue; }
                 var message = BridgeWire.ParseControl(packet.Payload);
+                operation = "processing " + message.Type;
                 switch (message.Type)
                 {
                     case "state":
@@ -73,7 +76,19 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
             }
         }
         catch (Exception) when (ct.IsCancellationRequested) { }
-        catch (Exception e) { SetState(SessionState.Faulted); Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, "Error", e.Message)); throw; }
+        catch (Exception e)
+        {
+            // WebAssembly can report an empty Message for native or JS failures.
+            // Retain the failed operation and exception types instead of a blank error bar.
+            var details = new List<string>();
+            for (Exception? cause = e; cause is not null && details.Count < 8; cause = cause.InnerException)
+                details.Add(cause.GetType().Name + (string.IsNullOrEmpty(cause.Message) ? "" : ": " + cause.Message));
+            string summary = "Bridge failure while " + operation + ": " + string.Join(" -> ", details);
+            foreach (string secret in new[] { credentials.Password, _token ?? "" })
+                if (secret.Length > 0) summary = summary.Replace(secret, "[redacted]", StringComparison.Ordinal);
+            SetState(SessionState.Faulted); Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, "Error", summary));
+            throw new IOException(summary, e);
+        }
         finally { _socket.Abort(); _token = null; DisplayCapabilities = null; if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult(); }
     }
     private async ValueTask SendAsync(byte[] data, CancellationToken ct)

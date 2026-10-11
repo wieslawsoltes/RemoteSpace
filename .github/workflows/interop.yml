@@ -43,6 +43,7 @@ jobs:
           sudo cat /var/log/xrdp.log > artifacts/integration/xrdp.log || true
           sudo cat /var/log/xrdp-sesman.log > artifacts/integration/sesman.log || true
           sudo cat /home/rdptest/.xsession-errors > artifacts/integration/xsession.log || true
+          sudo cat /home/rdptest/input-events.log > artifacts/integration/input-events.log || true
           cat artifacts/integration/xrdp.log
           cat artifacts/integration/sesman.log
       - uses: actions/upload-artifact@v4

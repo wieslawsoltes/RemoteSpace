@@ -51,13 +51,15 @@ async def run(site, output):
             page.on('console',lambda m:messages.append(m.type+': '+m.text))
             page.on('pageerror',lambda e:errors.append(str(e)))
             active, resized = asyncio.Event(), asyncio.Event()
-            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'sizes':[]}
+            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'sizes':[],'server_controls':[]}
             def received(payload):
                 if isinstance(payload,bytes):
                     if payload.startswith(b'RSU1'):
                         metrics['surface_packets']+=1;metrics['binary_bytes']+=len(payload)
                     return
                 msg=json.loads(payload)
+                if msg.get('Type') in ('state','diagnostic','error','display'):
+                    metrics['server_controls'].append(msg)
                 if msg.get('Type')=='state' and msg.get('State')==6: active.set()
                 if msg.get('Type')=='size':
                     metrics['sizes'].append([msg.get('Width'),msg.get('Height')])
@@ -104,6 +106,14 @@ async def run(site, output):
                     await asyncio.sleep(.1)
                 await page.wait_for_timeout(1500)
                 await page.screenshot(path=str(output/'01-live-desktop.png'))
+                # A socket can deliver bytes before the managed receiver faults.
+                # Never count that as a usable remote desktop.
+                await expect(page.get_by_role('tab',name='Loopback desktop',exact=True)).to_be_attached()
+                failed = page.locator('[aria-label="Faulted"]')
+                if await failed.count():
+                    await navigate(page,'Settings')
+                    await page.screenshot(path=str(output/'failure-diagnostics.png'))
+                    raise AssertionError('The managed browser session faulted after receiving desktop packets. See diagnostics.')
                 passed('Actual Uno client authenticates and receives real XRDP desktop pixels')
                 await command(page,'Fit')
                 await page.keyboard.type('touch browserproof',delay=50)
@@ -139,6 +149,12 @@ async def run(site, output):
                 (output/'checks.json').write_text(json.dumps(checks,indent=2))
                 (output/'errors.json').write_text(clean(json.dumps(errors,indent=2)))
                 await page.screenshot(path=str(output/'final.png'))
+                try:
+                    await navigate(page,'Settings')
+                    (output/'diagnostics-dom.html').write_text(clean(await page.content()))
+                    await page.screenshot(path=str(output/'diagnostics.png'))
+                except Exception:
+                    pass
                 await browser.close()
     finally:
         bridge.terminate()
