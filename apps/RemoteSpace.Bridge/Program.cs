@@ -1,0 +1,162 @@
+using System.Net;
+using System.Net.WebSockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Channels;
+using RemoteSpace.Client;
+using RemoteSpace.Core;
+using RemoteSpace.Graphics;
+using RemoteSpace.Profiles;
+using RemoteSpace.Transport;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.ConfigureKestrel(server => server.Limits.MaxRequestBodySize = 65536);
+var app = builder.Build();
+string token = Environment.GetEnvironmentVariable("REMOTESPACE_TOKEN") ?? throw new InvalidOperationException("REMOTESPACE_TOKEN is required. Generate a random token with at least 32 characters.");
+if (token.Length is < 32 or > 512) throw new InvalidOperationException("REMOTESPACE_TOKEN must contain 32–512 characters.");
+byte[] tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token)); token = "";
+var origins = (Environment.GetEnvironmentVariable("REMOTESPACE_ORIGINS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToHashSet(StringComparer.Ordinal);
+var targets = (Environment.GetEnvironmentVariable("REMOTESPACE_TARGETS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(RdpFile.ParseAddress).ToArray();
+if (origins.Count == 0 || targets.Length == 0) throw new InvalidOperationException("Explicit REMOTESPACE_ORIGINS and REMOTESPACE_TARGETS allowlists are required (semicolon-separated).");
+using var sessions = new SemaphoreSlim(8);
+app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
+app.Use(async (context, next) => { context.Response.Headers.CacheControl = "no-store"; context.Response.Headers.XContentTypeOptions = "nosniff"; await next(context); });
+app.MapGet("/health", () => Results.Json(new { service = "RemoteSpace bridge", protocol = BridgeWire.SubProtocol, status = "ready" }));
+app.Map("/session", async context =>
+{
+    if (!context.Request.IsHttps && !IPAddress.IsLoopback(context.Connection.RemoteIpAddress ?? IPAddress.None)) { context.Response.StatusCode = 400; return; }
+    if (!context.WebSockets.IsWebSocketRequest || !origins.Contains(context.Request.Headers.Origin.ToString()) || !context.WebSockets.WebSocketRequestedProtocols.Contains(BridgeWire.SubProtocol)) { context.Response.StatusCode = 403; return; }
+    if (!await sessions.WaitAsync(0, context.RequestAborted)) { context.Response.StatusCode = 503; return; }
+    try
+    {
+        using var socket = await context.WebSockets.AcceptWebSocketAsync(BridgeWire.SubProtocol);
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+        using var authentication = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); authentication.CancelAfter(TimeSpan.FromSeconds(5));
+        BridgePacket? first = await BridgeWire.ReceiveAsync(socket, authentication.Token, 16384);
+        if (first is null || first.Binary) return;
+        BridgeControl request;
+        try { request = BridgeWire.ParseControl(first.Payload); }
+        finally { CryptographicOperations.ZeroMemory(first.Payload); }
+        bool authorized = request.Type == "connect" && request.Token is { Length: >= 32 and <= 512 } supplied &&
+            CryptographicOperations.FixedTimeEquals(tokenHash, SHA256.HashData(Encoding.UTF8.GetBytes(supplied)));
+        request.Token = null;
+        if (!authorized) { await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Authentication failed", authentication.Token); return; }
+        if (request.Options is null || !targets.Any(target => string.Equals(target.Host, request.Options.Host, StringComparison.OrdinalIgnoreCase) && target.Port == request.Options.Port))
+        { await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Target is not allowed", authentication.Token); return; }
+        request.Options.Validate();
+        if ((request.UserName?.Length ?? 0) > 255 || (request.Password?.Length ?? 0) > 4096 || (request.Domain?.Length ?? 0) > 255) throw new InvalidDataException("Credential fields exceed the configured limits.");
+        var credentials = new SessionCredentials(request.UserName ?? "", request.Password ?? "", request.Domain ?? ""); request.Password = null;
+        await using var session = new RdpSession();
+        var outgoing = Channel.CreateBounded<BridgePacket>(new BoundedChannelOptions(128) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        // Only controls are queued. Desktop rectangles are composited in a fixed-size
+        // mailbox, so an initial repaint cannot overflow 128 transport packets and
+        // silently tear down a slow browser. The sole sender emits size before pixels.
+        using var frames = new FrameMailbox();
+        var wake = Channel.CreateBounded<byte>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
+        void Signal() => wake.Writer.TryWrite(0);
+        long queuedBytes = 0;
+        void Queue(BridgePacket packet)
+        {
+            if (lifetime.IsCancellationRequested) return;
+            if (Interlocked.Add(ref queuedBytes, packet.Payload.Length) > 4 * 1024 * 1024 || !outgoing.Writer.TryWrite(packet))
+            {
+                Interlocked.Add(ref queuedBytes, -packet.Payload.Length);
+                app.Logger.LogWarning("RemoteSpace control queue limit exceeded; disconnecting the slow consumer.");
+                lifetime.Cancel();
+            }
+            else Signal();
+        }
+        void Control(BridgeControl message) => Queue(new(false, BridgeWire.Control(message)));
+        session.DisplayCapabilitiesChanged += caps => { if (request.EnableDisplayControl) Control(new() { Type = "display", DisplayCapabilities = caps }); };
+        session.GraphicsOutputCapabilitiesChanged += caps => { if (request.EnableGraphicsOutputControl) Control(new() { Type = "graphics-capabilities", GraphicsOutputCapabilities = caps }); };
+        session.OutputEnabledChanged += enabled => { if (request.EnableGraphicsOutputControl) Control(new() { Type = "graphics-state", OutputEnabled = enabled }); };
+        session.StateChanged += state => Control(new() { Type = "state", State = state });
+        session.DesktopResized += size => { frames.Resize(size.Width, size.Height); Signal(); };
+        session.SurfaceUpdated += update => { frames.Apply(update); Signal(); };
+        session.Diagnostic += d => Control(new() { Type = "diagnostic", Stage = d.Stage, Message = d.Message });
+        session.ClipboardReceived += text =>
+        {
+            try { Control(new() { Type = "clipboard", Text = text }); }
+            catch (InvalidDataException e) { Control(new() { Type = "diagnostic", Stage = "Clipboard", Message = e.Message }); }
+        };
+        session.CursorChanged += cursor => Control(new() { Type = "cursor", Cursor = cursor });
+        session.CursorPositionChanged += (x, y) => Control(new() { Type = "position", Width = x, Height = y });
+        async Task SendLoop()
+        {
+            long sentGeneration = -1;
+            using var surfaceWriter = new BridgeSurfaceWriter();
+            while (await wake.Reader.WaitToReadAsync(lifetime.Token))
+            {
+                while (wake.Reader.TryRead(out _)) { }
+                frames.TryTakeBatch(out var frame);
+                if (frame is not null && frame.Generation != sentGeneration)
+                {
+                    await socket.SendAsync(BridgeWire.Control(new() { Type = "size", Width = frame.Size.Width, Height = frame.Size.Height }).AsMemory(), WebSocketMessageType.Text, true, lifetime.Token);
+                    sentGeneration = frame.Generation;
+                }
+                // Deliver activation and capability controls before a large pixel batch.
+                // A new resize arriving during this send is emitted on the next iteration.
+                while (outgoing.Reader.TryRead(out var packet))
+                {
+                    try { await socket.SendAsync(packet.Payload.AsMemory(), WebSocketMessageType.Text, true, lifetime.Token); }
+                    finally { Interlocked.Add(ref queuedBytes, -packet.Payload.Length); }
+                }
+                if (frame is not null)
+                    foreach (var update in frame.Updates)
+                        await surfaceWriter.SendAsync(socket, update, lifetime.Token);
+            }
+        }
+        async Task ReceiveLoop()
+        {
+            long window = Environment.TickCount64; int inputs = 0, clipboards = 0, layouts = 0, graphics = 0;
+            while (!lifetime.IsCancellationRequested)
+            {
+                var packet = await BridgeWire.ReceiveAsync(socket, lifetime.Token); if (packet is null) break;
+                if (packet.Binary) throw new InvalidDataException("Client binary messages are not accepted.");
+                var command = BridgeWire.ParseControl(packet.Payload);
+                if (Environment.TickCount64 - window >= 1000) { window = Environment.TickCount64; inputs = 0; clipboards = 0; layouts = 0; graphics = 0; }
+                if (++inputs > 2000) throw new InvalidDataException("Input rate limit exceeded.");
+                switch (command.Type)
+                {
+                    case "input": await session.SendInputAsync(command.Input, lifetime.Token); break;
+                    case "clipboard":
+                        if (++clipboards > 4) throw new InvalidDataException("Clipboard rate limit exceeded.");
+                        await session.SendClipboardAsync(command.Text ?? "", lifetime.Token); break;
+                    case "display-layout":
+                        if (!request.EnableDisplayControl || ++layouts > 4 || command.Monitors is null) throw new InvalidDataException("Display control is unavailable or its rate limit was exceeded.");
+                        await session.RequestDisplayLayoutAsync(command.Monitors, lifetime.Token); break;
+                    case "graphics-output":
+                        if (!request.EnableGraphicsOutputControl || ++graphics > 4 || command.OutputEnabled is not { } enabled) throw new InvalidDataException("Graphics-output request is unavailable or excessive.");
+                        await session.SetOutputEnabledAsync(enabled, lifetime.Token); break;
+                    case "graphics-refresh":
+                        if (!request.EnableGraphicsOutputControl || ++graphics > 4) throw new InvalidDataException("Graphics refresh is unavailable or excessive.");
+                        await session.RequestRefreshAsync(lifetime.Token); break;
+                    case "disconnect": return;
+                    default: throw new InvalidDataException("Unknown client control message.");
+                }
+            }
+        }
+        async Task RunSession()
+        {
+            try { await session.RunAsync(request.Options, credentials, lifetime.Token); }
+            catch (Exception e) when (!lifetime.IsCancellationRequested) { Control(new() { Type = "error", Message = e.Message }); }
+        }
+        Task send = SendLoop(), receive = ReceiveLoop(), run = RunSession();
+        try
+        {
+            Task ended = await Task.WhenAny(send, receive, run);
+            if (ended == run) { outgoing.Writer.TryComplete(); wake.Writer.TryComplete(); await send.WaitAsync(TimeSpan.FromSeconds(3)); }
+            await ended;
+        }
+        finally
+        {
+            lifetime.Cancel(); await session.DisconnectAsync(); outgoing.Writer.TryComplete(); wake.Writer.TryComplete();
+            try { await Task.WhenAll(send, receive, run); } catch (Exception) when (lifetime.IsCancellationRequested) { }
+            socket.Abort();
+        }
+    }
+    catch (Exception e) when (e is OperationCanceledException or WebSocketException or IOException or InvalidDataException or InvalidOperationException or ArgumentException or TimeoutException or System.Text.Json.JsonException)
+    { app.Logger.LogInformation("RemoteSpace session ended: {ErrorType}", e.GetType().Name); }
+    finally { sessions.Release(); }
+});
+app.Run();

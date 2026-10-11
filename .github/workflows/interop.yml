@@ -1,0 +1,53 @@
+name: RDP interoperability
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: interop-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  xrdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build client, bridge and test security codecs
+        run: |
+          dotnet build apps/RemoteSpace.Bridge -c Release
+          dotnet run --project tests/RemoteSpace.Integration -c Release
+      - name: Install isolated interoperability server
+        run: bash tools/start-test-server.sh
+      - name: Connect, decode desktop, send real input and resize
+        env:
+          RDP_TEST_HOST: 127.0.0.1
+          RDP_TEST_USER: rdptest
+          RDP_TEST_RESIZE: '1'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/integration
+          dotnet run --project tests/RemoteSpace.Integration -c Release --no-build 2>&1 | tee artifacts/integration/client.log
+          sudo test -f /home/rdptest/proof
+          echo 'PASS independent server-side keyboard effect: /home/rdptest/proof'
+          python3 -c "from PIL import Image; from pathlib import Path; [Image.open(p).save(p.with_suffix('.png')) for p in Path('artifacts/integration').glob('*.ppm')]"
+      - name: Collect server diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/integration
+          sudo cat /var/log/xrdp.log > artifacts/integration/xrdp.log || true
+          sudo cat /var/log/xrdp-sesman.log > artifacts/integration/sesman.log || true
+          sudo cat /home/rdptest/.xsession-errors > artifacts/integration/xsession.log || true
+          sudo cat /home/rdptest/input-events.log > artifacts/integration/input-events.log || true
+          cat artifacts/integration/xrdp.log
+          cat artifacts/integration/sesman.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rdp-interoperability
+          path: artifacts/integration

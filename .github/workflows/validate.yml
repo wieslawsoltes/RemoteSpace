@@ -1,0 +1,80 @@
+name: Validate
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive exact tested source and history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/source
+          git archive --format=zip --prefix=RemoteSpace/ HEAD > artifacts/source/RemoteSpace-source.zip
+          git bundle create artifacts/source/RemoteSpace-history.bundle HEAD
+          git rev-parse HEAD > artifacts/source/COMMIT.txt
+          git rev-parse HEAD^{tree} > artifacts/source/TREE.txt
+          cd artifacts/source
+          sha256sum RemoteSpace-source.zip RemoteSpace-history.bundle > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: artifacts/source
+          if-no-files-found: error
+  core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Protocol, graphics, profile and security tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/validation
+          dotnet run --project tests/RemoteSpace.Tests -c Release 2>&1 | tee artifacts/validation/core-tests.log
+          dotnet run --project tests/RemoteSpace.Workspace.Tests -c Release 2>&1 | tee artifacts/validation/workspace-tests.log
+      - name: Clipboard state and browser service regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Clipboard.Tests -c Release 2>&1 | tee artifacts/validation/clipboard-tests.log
+          node --test tests/browser/clipboard-service.test.mjs 2>&1 | tee artifacts/validation/clipboard-service.log
+      - name: Sparse presentation and allocation regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Performance.Tests -c Release 2>&1 | tee artifacts/validation/performance-tests.log
+      - name: Pack reusable components
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/packages
+          for project in src/*/*.csproj; do
+            if ! grep -q 'Uno.Sdk' "$project"; then dotnet pack "$project" -c Release -o artifacts/packages; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-${{ matrix.os }}
+          path: artifacts/validation
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.os }}
+          path: artifacts/packages

@@ -1,0 +1,143 @@
+name: Uno application
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: uno-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install WebAssembly toolchain
+        run: dotnet workload install wasm-tools
+      - name: Compile Uno desktop application and reusable controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/uno
+          dotnet build apps/RemoteSpace.App -c Release -f net10.0-desktop 2>&1 | tee artifacts/uno/desktop-build.log
+      - name: Publish Uno browser application
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish apps/RemoteSpace.App -c Release -f net10.0-browserwasm 2>&1 | tee artifacts/uno/browser-build.log
+          site=apps/RemoteSpace.App/bin/Release/net10.0-browserwasm/publish/wwwroot
+          test -f "$site/index.html"
+          mkdir -p artifacts/browser
+          cp -a "$site/." artifacts/browser/
+          touch artifacts/browser/.nojekyll
+          git rev-parse HEAD > artifacts/browser/commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uno-browser
+          path: artifacts/browser
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Pack reusable Uno controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet pack src/RemoteSpace.Controls -c Release -o artifacts/controls
+          test -n "$(find artifacts/controls -name '*.nupkg' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uno-build-logs
+          path: artifacts/uno
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uno-controls
+          path: artifacts/controls
+  browser:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: uno-browser
+          path: artifacts/browser
+      - name: Validate packages and build the real connection bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Tests -c Release
+          dotnet run --project tests/RemoteSpace.Workspace.Tests -c Release
+          dotnet build apps/RemoteSpace.Bridge -c Release
+      - name: Install browser validation tools
+        run: |
+          python3 -m venv /tmp/remote-browser-tests
+          /tmp/remote-browser-tests/bin/pip install playwright==1.56.0
+          /tmp/remote-browser-tests/bin/playwright install --with-deps chromium
+      - name: Validate the actual browser workspace
+        run: /tmp/remote-browser-tests/bin/python tests/browser/workspace.py artifacts/browser artifacts/browser-validation
+      - name: Install the authorized loopback RDP fixture
+        env:
+          RDP_TEST_MODERN: '1'
+        run: bash tools/start-test-server.sh
+      - name: Validate browser authentication, remote input and dynamic resolution
+        env:
+          RDP_TEST_HOST: 127.0.0.1
+          RDP_TEST_USER: rdptest
+        run: /tmp/remote-browser-tests/bin/python tests/browser/session.py artifacts/browser artifacts/browser-session
+      - name: Collect server diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts/browser-session
+          sudo cat /var/log/xrdp.log > artifacts/browser-session/xrdp.log || true
+          sudo cat /var/log/xrdp-sesman.log > artifacts/browser-session/sesman.log || true
+          sudo cat /home/rdptest/input-events.log > artifacts/browser-session/input-events.log || true
+          sudo find /home/rdptest -name 'xrdp-chansrv*.log' -type f -exec cat {} \; > artifacts/browser-session/chansrv.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-validation
+          path: artifacts/browser-validation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-session
+          path: artifacts/browser-session
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [build, browser]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: uno-browser
+          path: site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4
+        id: deployment
+      - name: Verify the published source revision
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --retry 6 --retry-delay 5 "${PAGE_URL%/}/commit.txt" -o deployed-commit.txt
+          diff -u site/commit.txt deployed-commit.txt

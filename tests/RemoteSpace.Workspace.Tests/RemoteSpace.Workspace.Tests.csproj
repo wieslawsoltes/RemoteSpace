@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/RemoteSpace.Input/RemoteSpace.Input.csproj" />
+    <ProjectReference Include="../../src/RemoteSpace.Workspace/RemoteSpace.Workspace.csproj" />
+  </ItemGroup>
+</Project>
