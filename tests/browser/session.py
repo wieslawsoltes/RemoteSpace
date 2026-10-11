@@ -88,7 +88,9 @@ async def run(site, output):
                 await edit(page,'User name',os.environ.get('RDP_TEST_USER','rdptest'))
                 await edit(page,'Certificate SHA-256 pin (optional)',pin)
                 security=page.get_by_role('combobox',name='Connection security',exact=True)
-                await security.press('Enter');await page.keyboard.press('Home');await page.keyboard.press('ArrowDown');await page.keyboard.press('Enter')
+                # Change selection while closed. Enter in a ContentDialog can
+                # submit its default Save command rather than open this peer.
+                await security.press('Home');await security.press('ArrowDown');await security.press('Tab')
                 await command(page,'Save')
                 await expect(page.get_by_role('button',name='Connect to Loopback desktop',exact=True)).to_be_attached(timeout=30000)
                 await command(page,'Connect to Loopback desktop')

@@ -58,13 +58,17 @@ await Task.Delay(3000, deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x0800, 0, 100, 100), deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x8000 | 0x1000, 0, 100, 100), deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x1000, 0, 100, 100), deadline.Token);
-// Type a shell command into the real xterm. The CI job independently checks the resulting remote file.
+// The fixture has no window manager. Allow its xterm client to process focus
+// events before the keyboard burst; no server-side focus or file is injected.
+await Task.Delay(250, deadline.Token);
 ushort[] command = [0x14, 0x18, 0x16, 0x2e, 0x23, 0x39, 0x19, 0x13, 0x18, 0x18, 0x21, 0x1c];
 foreach (ushort code in command)
 {
     await session.SendInputAsync(new(InputKind.ScanCode, 0, code), deadline.Token);
     await session.SendInputAsync(new(InputKind.ScanCode, 0x8000, code), deadline.Token);
+    await Task.Delay(40, deadline.Token);
 }
+Console.WriteLine("INPUT sent pointer focus and 12 key press/release pairs to the real desktop.");
 await Task.Delay(2000, deadline.Token);
 Directory.CreateDirectory("artifacts/integration");
 await Capture("desktop.ppm");
