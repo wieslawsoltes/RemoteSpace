@@ -72,4 +72,5 @@ long batchAllocated=GC.GetAllocatedBytesForCurrentThread()-allocated;
 Check(batchBytes==790 && singleBytes==2176,"64-event batch reduces share PDU bytes from 2176 to 790");
 Check(batchAllocated<singleAllocated/2,"batched encoder allocation reduction");
 Console.WriteLine($"PERFORMANCE input encoding: single={singleAllocated} allocated bytes; batch={batchAllocated}; input-only microbenchmark.");
+QueueTests.Run(Check).GetAwaiter().GetResult();
 Console.WriteLine($"RESULT: {checks} input checks passed.");

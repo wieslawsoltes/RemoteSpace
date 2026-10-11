@@ -26,7 +26,7 @@ public sealed partial class MainPage
             {
                 if (toggle)
                 {
-                    if (output.OutputEnabled) view.ReleaseHeldInput();
+                    if (output.OutputEnabled) await view.ReleaseHeldInputAsync();
                     await output.SetOutputEnabledAsync(!output.OutputEnabled);
                 }
                 else await output.RequestRefreshAsync();
