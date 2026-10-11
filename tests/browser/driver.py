@@ -19,7 +19,11 @@ async def boot(page, url=None):
         await asyncio.wait_for(ready.wait(), 120)
         enabler = page.get_by_role('button', name='Enable accessibility', exact=True)
         if await enabler.count():
-            await enabler.press('Enter')
+            # This sr-only HTML bootstrap is not an application command. Enter
+            # enables the tree on keydown, then its keyup can invoke the first
+            # native button (About). Click the public bootstrap element directly;
+            # all app commands below still use real keyboard or canvas input.
+            await enabler.evaluate('(button) => button.click()')
         # The managed Loaded event and semantic peers can precede Skia's first
         # presentation. Require painted content, not the uniform loader surface,
         # before reading mouse bounds or taking evidence screenshots.
@@ -34,6 +38,7 @@ async def boot(page, url=None):
                 raise AssertionError('The Uno workspace did not visibly paint after managed startup.')
             await asyncio.sleep(.15)
         await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        await expect(page.get_by_role('button', name='Close', exact=True)).to_have_count(0)
     finally:
         page.remove_listener('console', console)
 

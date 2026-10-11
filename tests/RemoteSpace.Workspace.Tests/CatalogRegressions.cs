@@ -1,12 +1,10 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using RemoteSpace.Profiles;
 using RemoteSpace.Workspace;
 
 internal static class CatalogRegressions
 {
-    [ModuleInitializer]
     internal static void Run()
     {
         int checks = 0;
@@ -19,9 +17,13 @@ internal static class CatalogRegressions
         var ordered = catalog.Query();
         Check(ordered[0].Profile.Name == "PC 00000", "cached ordering");
         Check(ReferenceEquals(ordered, catalog.Query()), "last result reused");
+        // Warm the runtime and tiered code before measuring cached calls.
+        // Keep the allocation bound strict; report the measured bytes on failure.
+        for (int i = 0; i < 20_000; i++) _ = catalog.Query();
         long before = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 10_000; i++) _ = catalog.Query();
         long cachedBytes = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"MEASUREMENT 10000 warm catalog queries allocated {cachedBytes} bytes.");
         Check(cachedBytes < 1024, "warm query does not allocate device arrays");
         Check(catalog.Find(profiles[29].Id)?.Profile == profiles[29], "indexed lookup");
         catalog.Configure(catalog.Settings with { Theme = WorkspaceTheme.Dark });

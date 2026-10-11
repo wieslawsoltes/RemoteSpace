@@ -10,6 +10,7 @@ void Reject(Action action, string name)
     try { action(); } catch (Exception e) when (e is ArgumentException or FormatException or IOException) { rejected = true; }
     Check(rejected, name);
 }
+CatalogRegressions.Run();
 await FileStoreRegressions.RunAsync();
 WorkspaceTests.Run(Check, Reject);
 Console.WriteLine($"RESULT: {checks} workspace and input checks passed.");
