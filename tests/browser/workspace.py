@@ -6,13 +6,16 @@ import json
 from pathlib import Path
 import sys
 import threading
+import tempfile
 import traceback
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
 
 async def run(site, output):
     output.mkdir(parents=True, exist_ok=True)
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(site.resolve())))
+    webroot = tempfile.TemporaryDirectory(prefix='remotespace-pages-')
+    (Path(webroot.name)/'RemoteSpace').symlink_to(site.resolve(), target_is_directory=True)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(http.server.SimpleHTTPRequestHandler, directory=webroot.name))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     messages, errors, checks = [], [], []
     def passed(name):
@@ -24,9 +27,9 @@ async def run(site, output):
         page.on('console', lambda message: messages.append(message.type + ': ' + message.text))
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
-            await boot(page, f'http://127.0.0.1:{server.server_port}/')
+            await boot(page, f'http://127.0.0.1:{server.server_port}/RemoteSpace/')
             await expect(page.get_by_role('button', name='Add your first PC', exact=True)).to_be_attached()
-            passed('Uno WASM boot and accessible command tree')
+            passed('Uno WASM boot and accessible command tree at a Pages-style project subpath')
             await page.screenshot(path=str(output/'01-workspace.png'))
             await page.get_by_role('button', name='Add your first PC', exact=True).click(force=True)
             await edit(page, 'Friendly name', 'Test workstation')
@@ -64,7 +67,7 @@ async def run(site, output):
             (output/'final-dom.html').write_text(await page.content())
             await page.screenshot(path=str(output/'final.png'))
             await browser.close()
-            server.shutdown()
+            server.shutdown(); server.server_close(); webroot.cleanup()
 
 if __name__ == '__main__':
     asyncio.run(run(Path(sys.argv[1]), Path(sys.argv[2])))

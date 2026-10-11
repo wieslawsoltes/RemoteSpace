@@ -11,6 +11,7 @@ import secrets
 import subprocess
 import sys
 import threading
+import tempfile
 import time
 import traceback
 import urllib.request
@@ -24,7 +25,9 @@ async def run(site, output):
     password, pin = os.environ['RDP_TEST_PASSWORD'], os.environ['RDP_TEST_PIN']
     token = secrets.token_urlsafe(48)
     output.mkdir(parents=True, exist_ok=True)
-    server = http.server.ThreadingHTTPServer(('127.0.0.1',0), functools.partial(http.server.SimpleHTTPRequestHandler,directory=str(site.resolve())))
+    webroot = tempfile.TemporaryDirectory(prefix='remotespace-pages-')
+    (Path(webroot.name)/'RemoteSpace').symlink_to(site.resolve(), target_is_directory=True)
+    server = http.server.ThreadingHTTPServer(('127.0.0.1',0), functools.partial(http.server.SimpleHTTPRequestHandler,directory=webroot.name))
     threading.Thread(target=server.serve_forever,daemon=True).start()
     origin = f'http://127.0.0.1:{server.server_port}'
     endpoint = 'ws://127.0.0.1:5088/session'
@@ -80,7 +83,7 @@ async def run(site, output):
                         raise AssertionError('Remote pixels were received but not visibly presented: '+verified.stderr)
                     await asyncio.sleep(.25)
             try:
-                await boot(page,origin+'/')
+                await boot(page,origin+'/RemoteSpace/')
                 for supplied, host in [(token+'invalid','127.0.0.1'),(token,'not-allowed.invalid')]:
                     code=await page.evaluate('''({endpoint,token,host}) => new Promise((resolve,reject) => {
                         const ws=new WebSocket(endpoint,'remotespace.v1');
@@ -158,7 +161,7 @@ async def run(site, output):
                 raise
             finally:
                 (output/'final-dom.html').write_text(clean(await page.content()))
-                (output/'metrics.json').write_text(json.dumps(metrics,indent=2))
+                (output/'metrics.json').write_text(clean(json.dumps(metrics,indent=2)))
                 (output/'console.log').write_text(clean('\n'.join(messages)))
                 (output/'checks.json').write_text(json.dumps(checks,indent=2))
                 (output/'errors.json').write_text(clean(json.dumps(errors,indent=2)))
@@ -174,7 +177,7 @@ async def run(site, output):
         bridge.terminate()
         try: bridge.wait(timeout=10)
         except subprocess.TimeoutExpired: bridge.kill();bridge.wait()
-        bridge_log.close();server.shutdown()
+        bridge_log.close();server.shutdown();server.server_close();webroot.cleanup()
 
 if __name__=='__main__':
     asyncio.run(run(Path(sys.argv[1]),Path(sys.argv[2])))

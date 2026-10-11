@@ -18,7 +18,7 @@ Do not run `tools/start-test-server.sh` on a normal workstation: it modifies sys
 
 ## Actual browser application
 
-The Uno job compiles desktop and publishes WebAssembly, then packs reusable controls. Browser validation is a separate job that downloads that exact build. Playwright drives the real Uno Skia accessibility peers and the actual canvas, not a separately written HTML mock.
+The Uno job compiles desktop and publishes WebAssembly, then packs reusable controls. Browser validation is a separate job that downloads that exact build. Playwright drives the real Uno Skia accessibility peers and the actual canvas, not a separately written HTML mock. Both workspace and session tests serve the distribution under `/RemoteSpace/`, so project-relative assets are tested rather than only hosting at the origin root. Text-entry helpers synchronize with presentation and verify each actual typed value without including credential values in failure messages; these are correctness checks, not input-latency benchmarks.
 
 `tests/browser/workspace.py` covers boot, accessible commands, precise profile text entry, saved-device creation, search, favorites, reload persistence and missing-bridge diagnostics. Popup commands use keyboard activation because Uno semantic DOM bounds are not necessarily absolute canvas hit-test coordinates.
 
