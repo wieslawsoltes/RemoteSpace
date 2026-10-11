@@ -19,6 +19,7 @@ from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
 from clipboard import round_trip
 from graphics_output import validate_output_controls
+from input_events import validate_extended_input
 
 async def run(site, output):
     if os.environ.get('RDP_TEST_HOST') != '127.0.0.1':
@@ -156,6 +157,7 @@ async def run(site, output):
                     if time.monotonic()>until: raise AssertionError('Pause key did not generate its ordered four-event batch.')
                     await asyncio.sleep(.1)
                 passed('Actual browser Pause key uses negotiated ordered input batching')
+                await validate_extended_input(page, metrics, passed)
                 resolution=page.get_by_role('button',name='Remote resolution',exact=True)
                 await expect(resolution).to_be_enabled(timeout=30000)
                 await command(page,'Remote resolution')
@@ -171,7 +173,10 @@ async def run(site, output):
                 passed('Browser resolution command produces server-confirmed 1024x768 pixels')
                 await round_trip(page, origin, passed)
                 await validate_output_controls(page, metrics, output, passed)
-                await command(page,'Close Tab')
+                # TabView's built-in close button is deliberately not a tab stop.
+                # Its semantic HTML proxy cannot focus the native button on Enter;
+                # exercise the actual canvas mouse hit instead.
+                await page.get_by_role('button',name='Close Tab',exact=True).click(force=True)
                 await command(page,'Disconnect')
                 await expect(page.get_by_role('tab',name='Loopback desktop',exact=True)).to_have_count(0,timeout=10000)
                 passed('Closing the active session drains input and removes its tab without hanging')
