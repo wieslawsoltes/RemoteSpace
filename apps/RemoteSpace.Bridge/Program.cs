@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Channels;
 using RemoteSpace.Client;
 using RemoteSpace.Core;
+using RemoteSpace.Graphics;
 using RemoteSpace.Profiles;
 using RemoteSpace.Transport;
 
@@ -47,31 +48,55 @@ app.Map("/session", async context =>
         var credentials = new SessionCredentials(request.UserName ?? "", request.Password ?? "", request.Domain ?? ""); request.Password = null;
         await using var session = new RdpSession();
         var outgoing = Channel.CreateBounded<BridgePacket>(new BoundedChannelOptions(128) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
+        // Only controls are queued. Desktop rectangles are composited in a fixed-size
+        // mailbox, so an initial repaint cannot overflow 128 transport packets and
+        // silently tear down a slow browser. The sole sender emits size before pixels.
+        using var frames = new FrameMailbox();
+        var wake = Channel.CreateBounded<byte>(new BoundedChannelOptions(1) { SingleReader = true, FullMode = BoundedChannelFullMode.DropWrite });
+        void Signal() => wake.Writer.TryWrite(0);
         long queuedBytes = 0;
         void Queue(BridgePacket packet)
         {
             if (lifetime.IsCancellationRequested) return;
-            if (Interlocked.Add(ref queuedBytes, packet.Payload.Length) > 32 * 1024 * 1024 || !outgoing.Writer.TryWrite(packet))
+            if (Interlocked.Add(ref queuedBytes, packet.Payload.Length) > 4 * 1024 * 1024 || !outgoing.Writer.TryWrite(packet))
             {
                 Interlocked.Add(ref queuedBytes, -packet.Payload.Length);
+                app.Logger.LogWarning("RemoteSpace control queue limit exceeded; disconnecting the slow consumer.");
                 lifetime.Cancel();
             }
+            else Signal();
         }
         void Control(BridgeControl message) => Queue(new(false, BridgeWire.Control(message)));
         session.DisplayCapabilitiesChanged += caps => { if (request.EnableDisplayControl) Control(new() { Type = "display", DisplayCapabilities = caps }); };
         session.StateChanged += state => Control(new() { Type = "state", State = state });
-        session.DesktopResized += size => Control(new() { Type = "size", Width = size.Width, Height = size.Height });
-        session.SurfaceUpdated += update => { foreach (var part in BridgeWire.Split(update)) Queue(new(true, BridgeWire.Surface(part))); };
+        session.DesktopResized += size => { frames.Resize(size.Width, size.Height); Signal(); };
+        session.SurfaceUpdated += update => { frames.Apply(update); Signal(); };
         session.Diagnostic += d => Control(new() { Type = "diagnostic", Stage = d.Stage, Message = d.Message });
         session.ClipboardReceived += text => Control(new() { Type = "clipboard", Text = text });
         session.CursorChanged += cursor => Control(new() { Type = "cursor", Cursor = cursor });
         session.CursorPositionChanged += (x, y) => Control(new() { Type = "position", Width = x, Height = y });
         async Task SendLoop()
         {
-            await foreach (var packet in outgoing.Reader.ReadAllAsync(lifetime.Token))
+            long sentGeneration = -1;
+            while (await wake.Reader.WaitToReadAsync(lifetime.Token))
             {
-                try { await socket.SendAsync(packet.Payload.AsMemory(), packet.Binary ? WebSocketMessageType.Binary : WebSocketMessageType.Text, true, lifetime.Token); }
-                finally { Interlocked.Add(ref queuedBytes, -packet.Payload.Length); }
+                while (wake.Reader.TryRead(out _)) { }
+                frames.TryTake(out var frame);
+                if (frame is not null && frame.Generation != sentGeneration)
+                {
+                    await socket.SendAsync(BridgeWire.Control(new() { Type = "size", Width = frame.Size.Width, Height = frame.Size.Height }).AsMemory(), WebSocketMessageType.Text, true, lifetime.Token);
+                    sentGeneration = frame.Generation;
+                }
+                // Deliver activation and capability controls before a large pixel batch.
+                // A new resize arriving during this send is emitted on the next iteration.
+                while (outgoing.Reader.TryRead(out var packet))
+                {
+                    try { await socket.SendAsync(packet.Payload.AsMemory(), WebSocketMessageType.Text, true, lifetime.Token); }
+                    finally { Interlocked.Add(ref queuedBytes, -packet.Payload.Length); }
+                }
+                if (frame?.Update is { } update)
+                    foreach (var part in BridgeWire.Split(update))
+                        await socket.SendAsync(BridgeWire.Surface(part).AsMemory(), WebSocketMessageType.Binary, true, lifetime.Token);
             }
         }
         async Task ReceiveLoop()
@@ -107,12 +132,12 @@ app.Map("/session", async context =>
         try
         {
             Task ended = await Task.WhenAny(send, receive, run);
-            if (ended == run) { outgoing.Writer.TryComplete(); await send.WaitAsync(TimeSpan.FromSeconds(3)); }
+            if (ended == run) { outgoing.Writer.TryComplete(); wake.Writer.TryComplete(); await send.WaitAsync(TimeSpan.FromSeconds(3)); }
             await ended;
         }
         finally
         {
-            lifetime.Cancel(); await session.DisconnectAsync(); outgoing.Writer.TryComplete();
+            lifetime.Cancel(); await session.DisconnectAsync(); outgoing.Writer.TryComplete(); wake.Writer.TryComplete();
             try { await Task.WhenAll(send, receive, run); } catch (Exception) when (lifetime.IsCancellationRequested) { }
             socket.Abort();
         }

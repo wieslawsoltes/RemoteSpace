@@ -16,13 +16,16 @@ public sealed class FrameBuffer
             throw new ArgumentOutOfRangeException(nameof(width));
         lock (_gate)
         {
-            Width = width; Height = height; _pixels = new byte[checked(width * height * 4)];
+            byte[] pixels = new byte[checked(width * height * 4)];
+            Array.Clear(_pixels); Width = width; Height = height; _pixels = pixels;
             for (int i = 3; i < _pixels.Length; i += 4) _pixels[i] = 255;
             Revision++;
         }
     }
     public void Apply(SurfaceUpdate update)
     {
+        ArgumentNullException.ThrowIfNull(update);
+        ArgumentNullException.ThrowIfNull(update.Rgba);
         lock (_gate)
         {
             if (update.Width < 1 || update.Height < 1 || update.X < 0 || update.Y < 0 ||
@@ -33,6 +36,25 @@ public sealed class FrameBuffer
                 update.Rgba.AsSpan(row * update.Width * 4, update.Width * 4)
                     .CopyTo(_pixels.AsSpan(((update.Y + row) * Width + update.X) * 4));
             Revision++;
+        }
+    }
+    public void Clear()
+    {
+        lock (_gate)
+        {
+            Array.Clear(_pixels); _pixels = []; Width = Height = 0; Revision++;
+        }
+    }
+    public SurfaceUpdate Snapshot(int x, int y, int width, int height)
+    {
+        lock (_gate)
+        {
+            if (x < 0 || y < 0 || width < 1 || height < 1 || (long)x + width > Width || (long)y + height > Height)
+                throw new ArgumentOutOfRangeException(nameof(width), "Snapshot rectangle is outside the desktop.");
+            byte[] copy = new byte[checked(width * height * 4)];
+            for (int row = 0; row < height; row++)
+                _pixels.AsSpan(((y + row) * Width + x) * 4, width * 4).CopyTo(copy.AsSpan(row * width * 4));
+            return new(x, y, width, height, copy);
         }
     }
     public SurfaceUpdate Snapshot()
