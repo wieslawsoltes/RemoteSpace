@@ -120,12 +120,6 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
             default: throw new RdpProtocolException("Unsupported pointer message.");
         }
     }
-    public ValueTask SendInputAsync(RemoteInput input, CancellationToken cancellationToken = default)
-    {
-        if (State != SessionState.Active || _desktop is null) throw new InvalidOperationException("The remote desktop is not active.");
-        if (input.Kind == InputKind.Pointer && (input.X >= _desktop.Width || input.Y >= _desktop.Height)) throw new ArgumentOutOfRangeException(nameof(input));
-        return SendShareAsync(Activation.Input(_desktop.ShareId, _user, input), cancellationToken);
-    }
     public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {
         if (State is not (SessionState.Disconnected or SessionState.Faulted)) SetState(SessionState.Disconnecting);

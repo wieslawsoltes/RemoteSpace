@@ -42,7 +42,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
             SetState(SessionState.Connecting);
             using var connect = CancellationTokenSource.CreateLinkedTokenSource(ct.Token); connect.CancelAfter(options.ConnectTimeout);
             await _socket.ConnectAsync(_endpoint, connect.Token);
-            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, EnableGraphicsOutputControl = true, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
+            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, EnableGraphicsOutputControl = true, EnableInputBatches = true, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
             try { await SendAsync(request, connect.Token); }
             finally { CryptographicOperations.ZeroMemory(request); _token = null; }
             bool established = false;
@@ -63,6 +63,9 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
                         var caps = message.DisplayCapabilities;
                         if (caps is not null && (caps.MaximumMonitors is < 1 or > DisplayLayout.MaximumMonitors || caps.MaximumArea is < 1 or > DisplayLayout.MaximumArea)) throw new InvalidDataException("Invalid bridge display capabilities.");
                         DisplayCapabilities = caps; DisplayCapabilitiesChanged?.Invoke(caps); break;
+                    case "input-capabilities":
+                        _inputBatches = message.EnableInputBatches;
+                        InputCapabilities = message.InputCapabilities; InputCapabilitiesChanged?.Invoke(InputCapabilities); break;
                     case "graphics-state":
                         if (message.OutputEnabled is not { } enabled) throw new InvalidDataException("Missing graphics-output state.");
                         OutputEnabled = enabled; OutputEnabledChanged?.Invoke(enabled);
@@ -107,6 +110,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
     public ValueTask SendInputAsync(RemoteInput input, CancellationToken cancellationToken = default)
     {
         if (State != SessionState.Active) throw new InvalidOperationException("The remote desktop is not active.");
+        RemoteInputValidation.Validate(input, InputCapabilities);
         return SendAsync(BridgeWire.Control(new() { Type = "input", Input = input }), cancellationToken);
     }
     public ValueTask SendClipboardAsync(string text, CancellationToken cancellationToken = default)

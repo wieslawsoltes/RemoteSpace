@@ -2,7 +2,7 @@ namespace RemoteSpace.Core;
 
 public enum SessionState { Disconnected, Connecting, Negotiating, Securing, Authenticating, Establishing, Active, Disconnecting, Faulted }
 public enum SecurityMode { NetworkLevelAuthentication, Tls }
-public enum InputKind { ScanCode, Unicode, Pointer, Synchronize }
+public enum InputKind { ScanCode, Unicode, Pointer, Synchronize, ExtendedPointer }
 public readonly record struct RemoteInput(InputKind Kind, ushort Flags, ushort Code, ushort X = 0, ushort Y = 0);
 public sealed record SurfaceUpdate(int X, int Y, int Width, int Height, byte[] Rgba);
 public sealed record DesktopSize(int Width, int Height);

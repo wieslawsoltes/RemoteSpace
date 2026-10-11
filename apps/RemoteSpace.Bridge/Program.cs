@@ -70,6 +70,7 @@ app.Map("/session", async context =>
         session.DisplayCapabilitiesChanged += caps => { if (request.EnableDisplayControl) Control(new() { Type = "display", DisplayCapabilities = caps }); };
         session.GraphicsOutputCapabilitiesChanged += caps => { if (request.EnableGraphicsOutputControl) Control(new() { Type = "graphics-capabilities", GraphicsOutputCapabilities = caps }); };
         session.OutputEnabledChanged += enabled => { if (request.EnableGraphicsOutputControl) Control(new() { Type = "graphics-state", OutputEnabled = enabled }); };
+        session.InputCapabilitiesChanged += caps => { if (request.EnableInputBatches) Control(new() { Type = "input-capabilities", InputCapabilities = caps, EnableInputBatches = true }); };
         session.StateChanged += state => Control(new() { Type = "state", State = state });
         session.DesktopResized += size => { frames.Resize(size.Width, size.Height); Signal(); };
         session.SurfaceUpdated += update => { frames.Apply(update); Signal(); };
@@ -115,10 +116,15 @@ app.Map("/session", async context =>
                 if (packet.Binary) throw new InvalidDataException("Client binary messages are not accepted.");
                 var command = BridgeWire.ParseControl(packet.Payload);
                 if (Environment.TickCount64 - window >= 1000) { window = Environment.TickCount64; inputs = 0; clipboards = 0; layouts = 0; graphics = 0; }
-                if (++inputs > 2000) throw new InvalidDataException("Input rate limit exceeded.");
+                int events = command.Type == "input-batch" ? command.Inputs?.Length ?? 0 : 1;
+                if (events < 1 || events > RemoteInputValidation.MaximumBatch || (inputs += events) > 2000)
+                    throw new InvalidDataException("Input event rate or batch limit exceeded.");
                 switch (command.Type)
                 {
                     case "input": await session.SendInputAsync(command.Input, lifetime.Token); break;
+                    case "input-batch":
+                        if (!request.EnableInputBatches || command.Inputs is null) throw new InvalidDataException("Input batches were not negotiated.");
+                        await session.SendInputsAsync(command.Inputs, lifetime.Token); break;
                     case "clipboard":
                         if (++clipboards > 4) throw new InvalidDataException("Clipboard rate limit exceeded.");
                         await session.SendClipboardAsync(command.Text ?? "", lifetime.Token); break;

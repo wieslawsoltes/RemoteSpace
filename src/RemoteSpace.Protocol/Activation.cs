@@ -5,7 +5,10 @@ namespace RemoteSpace.Protocol;
 
 public sealed record SharePacket(byte Type, ushort Source, byte[] Body);
 public sealed record ShareDataPacket(uint ShareId, byte Type, byte[] Body);
-public sealed record DemandActive(uint ShareId, int Width, int Height, int BitsPerPixel);
+public sealed record DemandActive(uint ShareId, int Width, int Height, int BitsPerPixel)
+{
+    public InputCapabilities InputCapabilities { get; init; } = InputCapabilities.Basic;
+}
 
 public static class Activation
 {
@@ -58,6 +61,7 @@ public static class Activation
         r.Skip(sourceSize); var caps = new PacketReader(r.Bytes(capSize)); int count = caps.U16(); caps.U16();
         if (count > 128) throw new RdpProtocolException("Too many capability sets.");
         int width = 0, height = 0, bpp = 0;
+        var input = InputCapabilities.Basic;
         var types = new HashSet<ushort>();
         for (int i = 0; i < count; i++)
         {
@@ -65,12 +69,18 @@ public static class Activation
             if (length < 4 || !types.Add(type)) throw new RdpProtocolException("Invalid or duplicate capability.");
             var c = new PacketReader(caps.Bytes(length - 4));
             if (type == 2) { bpp = c.U16(); c.Skip(6); width = c.U16(); height = c.U16(); }
+            if (type == 13)
+            {
+                if (c.Remaining < 84) throw new RdpProtocolException("Truncated input capabilities.");
+                ushort flags = c.U16();
+                input = new((flags & 0x10) != 0, (flags & 4) != 0, (flags & 0x100) != 0);
+            }
         }
         caps.End();
         if (r.Remaining == 4) r.U32(); r.End();
         if (width is < 1 or > 8192 || height is < 1 or > 8192 || (long)width * height > 16_777_216 || bpp is not (8 or 15 or 16 or 24))
             throw new RdpProtocolException("Unsupported server desktop dimensions or pixel format.");
-        return new(share, width, height, bpp);
+        return new(share, width, height, bpp) { InputCapabilities = input };
     }
     private static byte[] Capability(int type, PacketWriter body) => new PacketWriter().U16(type).U16(body.Length + 4).Bytes(body.ToArray()).ToArray();
     public static byte[] Confirm(DemandActive demand, ushort user, uint keyboardLayout)
@@ -89,7 +99,7 @@ public static class Activation
             Capability(9, new PacketWriter().U16(0).U16(0)),
             Capability(10, new PacketWriter().U16(6).U16(0)),
             Capability(12, new PacketWriter().U16(0).U16(0)),
-            Capability(13, new PacketWriter().U16(0x11).U16(0).U32(keyboardLayout).U32(4).U32(0).U32(12).Zeros(64)),
+            Capability(13, new PacketWriter().U16(0x115).U16(0).U32(keyboardLayout).U32(4).U32(0).U32(12).Zeros(64)),
             Capability(14, new PacketWriter().U16(1).U16(0)),
             Capability(16, new PacketWriter().Zeros(48)),
             Capability(20, new PacketWriter().U32(0).U32(1600)),
@@ -106,16 +116,25 @@ public static class Activation
     public static byte[] Synchronize(uint share, ushort user, ushort server) => Data(31, share, user, new PacketWriter().U16(1).U16(server).ToArray());
     public static byte[] Control(uint share, ushort user, ushort action) => Data(20, share, user, new PacketWriter().U16(action).U16(0).U32(0).ToArray());
     public static byte[] FontList(uint share, ushort user) => Data(39, share, user, new PacketWriter().U16(0).U16(0).U16(3).U16(50).ToArray());
-    public static byte[] Input(uint share, ushort user, RemoteInput input)
+    public static byte[] Input(uint share, ushort user, RemoteInput input) => Inputs(share, user, [input]);
+
+    /// <summary>MS-RDPBCGR 2.2.8.1.1.3.1: one timestamp and payload per ordered event.</summary>
+    public static byte[] Inputs(uint share, ushort user, ReadOnlySpan<RemoteInput> inputs)
     {
-        var w = new PacketWriter().U16(1).U16(0).U32(0);
-        switch (input.Kind)
+        if (inputs.Length is < 1 or > RemoteInputValidation.MaximumBatch) throw new ArgumentOutOfRangeException(nameof(inputs));
+        var w = new PacketWriter().U16(inputs.Length).U16(0);
+        foreach (var input in inputs)
         {
-            case InputKind.ScanCode: w.U16(4).U16(input.Flags).U16(input.Code).U16(0); break;
-            case InputKind.Unicode: w.U16(5).U16(input.Flags).U16(input.Code).U16(0); break;
-            case InputKind.Pointer: w.U16(0x8001).U16(input.Flags).U16(input.X).U16(input.Y); break;
-            case InputKind.Synchronize: w.U16(0).U16(0).U32(input.Code); break;
-            default: throw new ArgumentOutOfRangeException(nameof(input));
+            RemoteInputValidation.Validate(input);
+            w.U32(0);
+            switch (input.Kind)
+            {
+                case InputKind.ScanCode: w.U16(4).U16(input.Flags).U16(input.Code).U16(0); break;
+                case InputKind.Unicode: w.U16(5).U16(input.Flags).U16(input.Code).U16(0); break;
+                case InputKind.Pointer: w.U16(0x8001).U16(input.Flags).U16(input.X).U16(input.Y); break;
+                case InputKind.ExtendedPointer: w.U16(0x8002).U16(input.Flags).U16(input.X).U16(input.Y); break;
+                case InputKind.Synchronize: w.U16(0).U16(0).U32(input.Code); break;
+            }
         }
         return Data(28, share, user, w.ToArray());
     }
