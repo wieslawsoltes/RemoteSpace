@@ -33,6 +33,10 @@ sudo install -m644 sesman/sesman.ini /etc/xrdp/sesman.ini
 sudo sed -i 's|^param=Xorg$|param=/usr/lib/xorg/Xorg|' /etc/xrdp/sesman.ini
 sudo install -m755 "$work/startwm.sh" /etc/xrdp/startwm.sh
 sudo install -m644 "$work/xrdp-sesman.pam" /etc/pam.d/xrdp-sesman
+# Ubuntu's multiarch search path otherwise finds the still-installed 0.9 .pc
+# before /usr/lib/pkgconfig. Select and verify the exact newly installed server.
+export PKG_CONFIG_PATH="/usr/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+test "$(pkg-config --modversion xrdp)" = '0.10.6.1'
 cd "$work/xorgxrdp-0.10.5"
 ./configure --prefix=/usr --sysconfdir=/etc
 make -j2
