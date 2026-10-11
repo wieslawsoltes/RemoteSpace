@@ -33,6 +33,7 @@ jobs:
           path: artifacts/source
           if-no-files-found: error
   core:
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

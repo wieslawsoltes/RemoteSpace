@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text;
 using RemoteSpace.Core;
 using RemoteSpace.Profiles;
@@ -6,9 +5,7 @@ using RemoteSpace.Workspace;
 
 internal static class FileStoreRegressions
 {
-    [ModuleInitializer]
-    internal static void Run() => RunAsync().GetAwaiter().GetResult();
-    private static async Task RunAsync()
+    internal static async Task RunAsync()
     {
         int checks = 0;
         void Check(bool condition, string name) { if (!condition) throw new Exception("FAILED " + name); checks++; }
