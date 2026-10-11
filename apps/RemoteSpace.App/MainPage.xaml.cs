@@ -161,10 +161,11 @@ public sealed partial class MainPage : Page
             var state = new TextBlock { Text = "Connecting…", VerticalAlignment = VerticalAlignment.Center };
             var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(8) };
             var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-            panel.Children.Add(toolbar); Grid.SetRow(view, 1); panel.Children.Add(view);
+            panel.Children.Add(new ScrollViewer { Content = toolbar, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }); Grid.SetRow(view, 1); panel.Children.Add(view);
             var tab = new TabViewItem { Header = profile.Name, Content = panel, IsClosable = true };
             var opened = new OpenSession(profile, session, view, tab); _sessions.Add(opened);
             void Button(string label, Action action) { var b = new Button { Content = label }; b.Click += (_, _) => action(); toolbar.Children.Add(b); }
+            AddDisplayControls(session, view, toolbar);
             Button("Fit", () => { view.FitToWindow = true; view.Focus(FocusState.Programmatic); });
             Button("100%", () => { view.Zoom = 1; view.FitToWindow = false; });
             Button("−", () => { view.FitToWindow = false; view.Zoom = Math.Max(.1, view.Zoom - .25); });
