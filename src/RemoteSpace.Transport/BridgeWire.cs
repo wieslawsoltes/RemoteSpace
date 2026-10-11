@@ -40,8 +40,20 @@ public static class BridgeWire
     public const string SubProtocol = "remotespace.v1";
     public const int MaximumBinary = 4 * 1024 * 1024 + 24;
     public const int MaximumControl = 2 * 1024 * 1024;
-    public static byte[] Control(BridgeControl message) => JsonSerializer.SerializeToUtf8Bytes(message, BridgeJsonContext.Default.BridgeControl);
-    public static BridgeControl ParseControl(byte[] data) => JsonSerializer.Deserialize(data, BridgeJsonContext.Default.BridgeControl) ?? throw new InvalidDataException("Empty control message.");
+    public static byte[] Control(BridgeControl message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(message, BridgeJsonContext.Default.BridgeControl);
+        if (bytes.Length <= MaximumControl) return bytes;
+        System.Security.Cryptography.CryptographicOperations.ZeroMemory(bytes);
+        throw new InvalidDataException("The encoded bridge control exceeds the two-megabyte limit. Shorten the clipboard text before retrying.");
+    }
+    public static BridgeControl ParseControl(byte[] data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (data.Length > MaximumControl) throw new InvalidDataException("Oversized bridge control message.");
+        return JsonSerializer.Deserialize(data, BridgeJsonContext.Default.BridgeControl) ?? throw new InvalidDataException("Empty control message.");
+    }
     public static byte[] Surface(SurfaceUpdate update)
     {
         if (update.X < 0 || update.Y < 0 || update.Width < 1 || update.Height < 1 || (long)update.X + update.Width > 8192 || (long)update.Y + update.Height > 8192 || update.Rgba.LongLength != (long)update.Width * update.Height * 4 || update.Rgba.Length > MaximumBinary - 24)

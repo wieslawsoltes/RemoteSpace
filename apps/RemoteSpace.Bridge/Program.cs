@@ -72,7 +72,11 @@ app.Map("/session", async context =>
         session.DesktopResized += size => { frames.Resize(size.Width, size.Height); Signal(); };
         session.SurfaceUpdated += update => { frames.Apply(update); Signal(); };
         session.Diagnostic += d => Control(new() { Type = "diagnostic", Stage = d.Stage, Message = d.Message });
-        session.ClipboardReceived += text => Control(new() { Type = "clipboard", Text = text });
+        session.ClipboardReceived += text =>
+        {
+            try { Control(new() { Type = "clipboard", Text = text }); }
+            catch (InvalidDataException e) { Control(new() { Type = "diagnostic", Stage = "Clipboard", Message = e.Message }); }
+        };
         session.CursorChanged += cursor => Control(new() { Type = "cursor", Cursor = cursor });
         session.CursorPositionChanged += (x, y) => Control(new() { Type = "position", Width = x, Height = y });
         async Task SendLoop()

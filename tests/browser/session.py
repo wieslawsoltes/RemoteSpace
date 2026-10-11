@@ -16,6 +16,7 @@ import traceback
 import urllib.request
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
+from clipboard import round_trip
 
 async def run(site, output):
     if os.environ.get('RDP_TEST_HOST') != '127.0.0.1':
@@ -99,6 +100,7 @@ async def run(site, output):
                 await edit(page,'PC address','127.0.0.1')
                 await edit(page,'User name',os.environ.get('RDP_TEST_USER','rdptest'))
                 await edit(page,'Certificate SHA-256 pin (optional)',pin)
+                await page.get_by_role('checkbox',name='Allow text clipboard redirection (opt-in)',exact=True).press('Space')
                 security=page.get_by_role('combobox',name='Connection security',exact=True)
                 # Change selection while closed. Enter in a ContentDialog can
                 # submit its default Save command rather than open this peer.
@@ -148,6 +150,7 @@ async def run(site, output):
                 await page.wait_for_timeout(1000)
                 await rendered('02-resized-desktop.png')
                 passed('Browser resolution command produces server-confirmed 1024x768 pixels')
+                await round_trip(page, origin, passed)
                 if errors: raise AssertionError('Uncaught browser errors: '+'\n'.join(errors))
                 passed('No uncaught JavaScript or WASM session errors')
             except BaseException:
