@@ -27,9 +27,13 @@ public static class Mcs
             .Zeros(64).U8(0).U8(0).U32((uint)selected);
         if (core.Length != 216) throw new InvalidOperationException("Client core size invariant.");
         var blocks = new PacketWriter().Bytes(core.ToArray()).U16(0xc002).U16(12).U32(0).U32(0);
-        if (options.RedirectClipboard)
-            blocks.U16(0xc003).U16(20).U32(1).Bytes(Encoding.ASCII.GetBytes("cliprdr\0")).U32(0x80200000);
-        else blocks.U16(0xc003).U16(8).U32(0);
+        string[] channels = StaticChannelNames(options);
+        blocks.U16(0xc003).U16(8 + 12 * channels.Length).U32((uint)channels.Length);
+        foreach (string channel in channels)
+        {
+            byte[] channelName = Encoding.ASCII.GetBytes(channel);
+            blocks.Bytes(channelName).Zeros(8 - channelName.Length).U32(0x80200000);
+        }
         byte[] data = blocks.ToArray();
         byte[] conference = new PacketWriter().Bytes([0, 8, 0, 16, 0, 1, 0xc0, 0])
             .Bytes("Duca"u8).PerLength(data.Length).Bytes(data).ToArray();
@@ -39,6 +43,13 @@ public static class Mcs
             .Bytes(Domain(1, 1, 1, 1, 0, 1, 1056, 2))
             .Bytes(Domain(65535, 64535, 65535, 1, 0, 1, 65535, 2)).Ber(4, gcc).ToArray();
         return new PacketWriter().Ber(0x7f65, body).ToArray();
+    }
+    public static string[] StaticChannelNames(ConnectionOptions options)
+    {
+        var names = new List<string>(2);
+        if (options.RedirectClipboard) names.Add("cliprdr");
+        if (options.EnableDynamicResolution) names.Add("drdynvc");
+        return names.ToArray();
     }
     public static ServerSettings ParseConnectResponse(ReadOnlySpan<byte> packet, int expectedChannels)
     {

@@ -54,9 +54,15 @@ public sealed partial class RdpSession
             SetState(SessionState.Establishing);
             _licensing = new RemoteSpace.Licensing.LicenseClient(credentials.UserName, Environment.MachineName, tls.IsAuthenticated && tls.IsEncrypted);
             await WriteMcsAsync(Mcs.ConnectInitial(options, selected.Protocol), handshake.Token);
-            var settings = Mcs.ParseConnectResponse(await ReadMcsAsync(handshake.Token), options.RedirectClipboard ? 1 : 0);
+            var names = Mcs.StaticChannelNames(options);
+            var settings = Mcs.ParseConnectResponse(await ReadMcsAsync(handshake.Token), names.Length);
             if (settings.RequestedProtocols is { } protocols && protocols != (uint)requested) throw new RdpProtocolException("Server's security negotiation echo did not match.");
-            _global = settings.GlobalChannel; _clipboardChannel = settings.StaticChannels.FirstOrDefault();
+            _global = settings.GlobalChannel;
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (names[i] == "cliprdr") _clipboardChannel = settings.StaticChannels[i];
+                if (names[i] == "drdynvc") _dynamicChannel = settings.StaticChannels[i];
+            }
             await WriteMcsAsync(Mcs.ErectDomain(), handshake.Token);
             await WriteMcsAsync(Mcs.AttachUser(), handshake.Token);
             _user = Mcs.ParseAttachConfirm(await ReadMcsAsync(handshake.Token));
@@ -70,6 +76,7 @@ public sealed partial class RdpSession
             finally { CryptographicOperations.ZeroMemory(info); }
             while (!lifetime.IsCancellationRequested)
             {
+                bool wasActive = State == SessionState.Active;
                 CancellationToken ct = State == SessionState.Active ? lifetime.Token : handshake.Token;
                 var packet = await Framing.ReadAsync(_stream, ct); ReceivedBytes += packet.Payload.Length;
                 if (packet.IsFastPath) _fastPath.Accept(packet.Payload, FastUpdate);
@@ -84,9 +91,15 @@ public sealed partial class RdpSession
                         byte[]? clipboard = _clipboardFragments.Accept(channel.Payload);
                         if (clipboard is not null) await ProcessClipboardAsync(ClipboardCodec.Parse(clipboard), ct);
                     }
+                    else if (channel.Channel == _dynamicChannel && _dynamicChannel != 0)
+                    {
+                        byte[]? dynamic = _dynamicFragments.Accept(channel.Payload);
+                        if (dynamic is not null) await ProcessDynamicAsync(dynamic, ct);
+                    }
                     else throw new RdpProtocolException("Data arrived on an unjoined channel.");
                 }
                 if (State == SessionState.Active) handshake.CancelAfter(Timeout.InfiniteTimeSpan);
+                else if (wasActive) handshake.CancelAfter(options.ConnectTimeout);
             }
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
@@ -102,7 +115,7 @@ public sealed partial class RdpSession
                 if (_stream is not null) await _stream.DisposeAsync();
                 if (State != SessionState.Faulted) SetState(SessionState.Disconnected);
             }
-            finally { _tcp?.Dispose(); _licensing?.Dispose(); _localClipboard = null; _completed.TrySetResult(); }
+            finally { _tcp?.Dispose(); _licensing?.Dispose(); _localClipboard = null; _dynamicChannels.Reset(); DisplayCapabilities = null; _completed.TrySetResult(); }
         }
     }
 }

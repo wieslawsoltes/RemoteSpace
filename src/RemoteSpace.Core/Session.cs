@@ -17,6 +17,7 @@ public sealed record ConnectionOptions
     public int BitsPerPixel { get; init; } = 24;
     public SecurityMode Security { get; init; } = SecurityMode.NetworkLevelAuthentication;
     public string? CertificateSha256 { get; init; }
+    public bool EnableDynamicResolution { get; init; } = true;
     public bool RedirectClipboard { get; init; }
     public TimeSpan ConnectTimeout { get; init; } = TimeSpan.FromSeconds(20);
     public uint KeyboardLayout { get; init; } = 0x0409;

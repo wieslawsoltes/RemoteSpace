@@ -1,5 +1,3 @@
-using System.Text;
-using RemoteSpace.Core;
 using RemoteSpace.Protocol;
 using RemoteSpace.Graphics;
 using RemoteSpace.Profiles;
@@ -43,5 +41,6 @@ Reject(() => new ConnectionOptions { Host = "host", Width = 8192, Height = 8192 
 Reject(() => new ConnectionOptions { Host = "host", CertificateSha256 = "00" }.Validate(), "pin length validation");
 Check(!new SessionCredentials("user", "secret").ToString().Contains("secret"), "credentials redact ToString");
 ProtocolTests.Run(Check, Reject);
+DynamicChannelTests.Run(Check, Reject);
 Check(Convert.ToHexString(Activation.Synchronize(0x000103ea, 1007, 1002)) == "16001700EF03EA030100000108001F0000000100EA03", "Microsoft client synchronize golden PDU");
 Console.WriteLine($"RESULT: {checks} checks passed.");
