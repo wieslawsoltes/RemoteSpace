@@ -25,6 +25,7 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+        InitializeWorkspaceAccessibility();
         Devices.Loaded += (_, _) => UpdateTileSize();
         DeviceGridScroll.SizeChanged += (_, _) => UpdateTileSize();
         Loaded += async (_, _) =>

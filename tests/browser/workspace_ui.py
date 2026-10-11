@@ -46,7 +46,7 @@ async def validate_workspace_ui(page, output, passed):
     await expect(page.get_by_role('button', name='Connect to Build server', exact=True)).to_be_attached()
     await expect(page.get_by_role('button', name='Connect to Test workstation', exact=True)).to_have_count(0)
     await edit(page, 'Search devices', 'no device matches')
-    await expect(page.get_by_text('No matching devices', exact=True)).to_be_attached()
+    await expect(page.get_by_label('No matching devices', exact=True)).to_be_attached()
     await command(page, 'Clear filters')
     await expect(page.get_by_role('button', name='Connect to Test workstation', exact=True)).to_be_attached()
     passed('Group and text filters compose, with an actionable no-results state')
@@ -74,8 +74,13 @@ async def validate_workspace_ui(page, output, passed):
     await boot(page)
     await navigate(page, 'Settings')
     theme = page.get_by_role('combobox', name='App theme', exact=True)
-    # Read the public accessibility selection, rather than app-private state.
-    await expect(theme).to_contain_text('Dark')
+    # Verify the persisted preference through the real export command. This host
+    # exposes the ComboBox name but not SelectedItem as inner DOM text.
+    async with page.expect_download(timeout=15000) as saved_theme:
+        await command(page, 'Export saved devices')
+    await (await saved_theme.value).save_as(str(output/'theme-workspace.json'))
+    if json.loads((output/'theme-workspace.json').read_text())['Settings']['Theme'] != 2:
+        raise AssertionError('Dark theme did not survive reload in the exported workspace')
     await theme.press('Home'); await theme.press('ArrowDown'); await theme.press('Tab')
     await navigate(page, 'Devices')
     await page.screenshot(path=str(output/'05-light-devices.png'))
@@ -97,7 +102,7 @@ async def validate_workspace_ui(page, output, passed):
     await navigate(page,'Devices')
     await command(page,'Grid view')
     await edit(page,'Search devices','Benchmark')
-    await expect(page.get_by_text('Saved devices (1000)',exact=True)).to_be_attached(timeout=30000)
+    await expect(page.get_by_label('Saved devices (1000)',exact=True)).to_be_attached(timeout=30000)
     buttons = page.get_by_role('button', name=re.compile('^Connect to Benchmark '))
     await expect(buttons.first).to_be_attached(timeout=30000)
     realized = await buttons.count()
