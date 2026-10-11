@@ -1,4 +1,8 @@
 <Page x:Class="RemoteSpace.App.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="using:RemoteSpace.Controls" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+  <Page.Resources>
+    <DataTemplate x:Key="DeviceTileContent"><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate>
+    <DataTemplate x:Key="DeviceRowContent"><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate>
+  </Page.Resources>
   <Grid RowDefinitions="40,*,Auto">
     <Grid Padding="18,0,14,0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
       <FontIcon Glyph="&#xE8AF;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
@@ -46,15 +50,15 @@
               </Grid>
               <Grid Grid.Row="2">
                 <ScrollViewer x:Name="DeviceGridScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
-                  <ItemsRepeater x:Name="Devices" HorizontalCacheLength="0" VerticalCacheLength="1">
+                  <ItemsRepeater x:Name="Devices" ElementPrepared="DevicePrepared" ElementClearing="DeviceClearing" HorizontalCacheLength="0" VerticalCacheLength="1">
                     <ItemsRepeater.Layout><UniformGridLayout Orientation="Horizontal" MinItemWidth="300" MinItemHeight="268" MinColumnSpacing="16" MinRowSpacing="16" ItemsJustification="Start" ItemsStretch="None" /></ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></ItemsRepeater.ItemTemplate>
+                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:RecyclingContentHost ViewTemplate="{StaticResource DeviceTileContent}" /></DataTemplate></ItemsRepeater.ItemTemplate>
                   </ItemsRepeater>
                 </ScrollViewer>
                 <ScrollViewer x:Name="DeviceListScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
-                  <ItemsRepeater x:Name="DeviceList" HorizontalCacheLength="0" VerticalCacheLength="1">
+                  <ItemsRepeater x:Name="DeviceList" ElementPrepared="DevicePrepared" ElementClearing="DeviceClearing" HorizontalCacheLength="0" VerticalCacheLength="1">
                     <ItemsRepeater.Layout><StackLayout Orientation="Vertical" Spacing="8" /></ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></ItemsRepeater.ItemTemplate>
+                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:RecyclingContentHost ViewTemplate="{StaticResource DeviceRowContent}" /></DataTemplate></ItemsRepeater.ItemTemplate>
                   </ItemsRepeater>
                 </ScrollViewer>
                 <StackPanel x:Name="Empty" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" MaxWidth="440" Margin="0,12">
