@@ -55,7 +55,7 @@ async def run(site, output):
             page.on('console',lambda m:messages.append(m.type+': '+m.text))
             page.on('pageerror',lambda e:errors.append(str(e)))
             active, resized = asyncio.Event(), asyncio.Event()
-            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'sizes':[],'server_controls':[]}
+            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
             def received(payload):
                 if isinstance(payload,bytes):
                     if payload.startswith(b'RSU1'):
@@ -69,7 +69,12 @@ async def run(site, output):
                     metrics['sizes'].append([msg.get('Width'),msg.get('Height')])
                     if metrics['sizes'][-1]==[1024,768]: resized.set()
             def sent(payload):
-                if isinstance(payload,str) and json.loads(payload).get('Type')=='input': metrics['input_packets']+=1
+                if isinstance(payload,str):
+                    message = json.loads(payload)
+                    if message.get('Type')=='input': metrics['input_packets']+=1
+                    if message.get('Type')=='clipboard':
+                        metrics['clipboard_packets']+=1
+                        metrics['clipboard_lengths'].append(len(message.get('Text') or ''))
             def socket(ws): ws.on('framereceived',received);ws.on('framesent',sent)
             page.on('websocket',socket)
             async def rendered(name):

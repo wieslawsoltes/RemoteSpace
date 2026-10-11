@@ -12,8 +12,12 @@ public sealed partial class RdpSession
         try
         {
             foreach (byte[] reply in result.Replies)
+            {
+                var header = ClipboardCodec.Parse(reply);
+                Log("Clipboard", $"Sending type {header.Type}, flags {header.Flags}, {header.Data.Length} payload bytes.");
                 foreach (byte[] fragment in ChannelAssembler.Fragment(reply))
                     await SendChannelAsync(_clipboardChannel, fragment, ct);
+            }
         }
         catch
         {
@@ -28,6 +32,7 @@ public sealed partial class RdpSession
         await _clipboardWriter.WaitAsync(ct);
         try
         {
+            Log("Clipboard", $"Received type {packet.Type}, flags {packet.Flags}, {packet.Data.Length} payload bytes.");
             result = _clipboard.Accept(packet);
             await SendClipboardRepliesAsync(result, ct);
         }
@@ -49,6 +54,7 @@ public sealed partial class RdpSession
             if (State != SessionState.Active || !_clipboard.IsReady || _clipboardChannel == 0)
                 throw new InvalidOperationException("Clipboard redirection was not enabled or is not ready.");
             var result = _clipboard.OfferText(text);
+            Log("Clipboard", $"Offered {text.Length} text characters; {result.Replies.Length} immediate protocol replies.");
             await SendClipboardRepliesAsync(result, cancellationToken);
         }
         finally { _clipboardWriter.Release(); }

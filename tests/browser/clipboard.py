@@ -17,7 +17,7 @@ async def round_trip(page, origin, passed):
         if result.returncode == 0 and result.stdout.decode('utf-8') == local_text:
             break
         if time.monotonic() >= until:
-            raise AssertionError('Browser Unicode clipboard text did not arrive in the remote X selection.')
+            raise AssertionError('Browser Unicode clipboard text did not arrive in the remote X selection. ' + f'xclip exit={result.returncode}, bytes={len(result.stdout)}, stderr={result.stderr.decode("utf-8", errors="replace")[:300]!r}, matches_fixture={result.stdout == local_text.encode("utf-8")}')
         await asyncio.sleep(.2)
     passed('Explicit browser clipboard command transfers exact Unicode text to the real remote clipboard')
     remote_text = 'RemoteSpace remote → Ελληνικά العربية 🙂'
