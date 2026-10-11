@@ -1,22 +1,22 @@
 #if __WASM__
+using System.Runtime.InteropServices.JavaScript;
 using System.Text;
-using Uno.Foundation;
 
 namespace RemoteSpace.App;
 
-/// <summary>Await IndexedDB transaction completion, not just the in-memory filesystem write.
-/// A single read/write transaction compares the full previous document before replacement,
-/// so other browser windows cannot silently overwrite one another's saved devices.</summary>
-internal static class BrowserWorkspaceStore
+/// <summary>Transactional browser workspace persistence with compare-and-replace conflict detection.
+/// Uses source-generated .NET interop; no eval, Uno DOM-only async helpers or user-generated script.</summary>
+internal static partial class BrowserWorkspaceStore
 {
-    public static Task<string> ReadAsync() => ExecuteAsync(false, null, null);
-    public static Task<string> ReplaceAsync(string? expected, string value) => ExecuteAsync(true, expected, value);
-    private static Task<string> ExecuteAsync(bool write, string? expected, string? value)
-    {
-        // Only base64 (not user-supplied JavaScript) is substituted in this expression.
-        string code = "((write, expected64, value64) => {" + """
-            const decode = s => s === null ? null : new TextDecoder('utf-8', {fatal:true}).decode(Uint8Array.from(atob(s), c => c.charCodeAt(0)));
-            const expected = decode(expected64), value = decode(value64);
+    private static readonly Task<JSObject> Module = JSHost.ImportAsync("remotespace.workspace",
+        "data:text/javascript;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(Source)));
+    public static async Task<string> ReadAsync() { await Module; return await Execute(false, null, null); }
+    public static async Task<string> ReplaceAsync(string? expected, string value) { await Module; return await Execute(true, expected, value); }
+    [JSImport("execute", "remotespace.workspace")]
+    [return: JSMarshalAs<JSType.Promise<JSType.String>>]
+    private static partial Task<string> Execute(bool write, string? expected, string? value);
+    private const string Source = """
+export function execute(write, expected, value) {
             return new Promise((resolve, reject) => {
                 let db, tx, finished = false;
                 const fail = e => { if (finished) return; finished = true; clearTimeout(timer); try { if (tx) tx.abort(); } catch {} if (db) db.close(); reject(String(e?.message || e)); };
@@ -50,9 +50,8 @@ internal static class BrowserWorkspaceStore
                     } catch (e) { fail(e); }
                 };
             });
-        """ + "})(" + (write ? "true" : "false") + "," + Base64Literal(expected) + "," + Base64Literal(value) + ")";
-        return WebAssemblyRuntime.InvokeAsync(code, CancellationToken.None);
-    }
-    private static string Base64Literal(string? value) => value is null ? "null" : "'" + Convert.ToBase64String(Encoding.UTF8.GetBytes(value)) + "'";
+
+}
+""";
 }
 #endif
