@@ -8,6 +8,9 @@ import sys
 import threading
 import tempfile
 import traceback
+import time
+from io import BytesIO
+from PIL import Image
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
 from workspace_ui import validate_workspace_ui
@@ -46,7 +49,20 @@ async def run(site, output):
             await command(page, 'Add')
             connect = page.get_by_role('button', name='Connect to Test workstation', exact=True)
             await expect(connect).to_be_attached(timeout=30000)
-            passed('Add-PC dialog saves the exact entered name and address')
+            await expect(connect).to_be_visible()
+            until = time.monotonic() + 10
+            while True:
+                png = await page.screenshot()
+                image = Image.open(BytesIO(png)).convert('RGB')
+                colors = image.getcolors(image.width * image.height)
+                saturated = sum(n for n, color in colors if max(color) - min(color) > 45)
+                if saturated >= 10_000:
+                    (output/'02-first-device.png').write_bytes(png)
+                    break
+                if time.monotonic() >= until:
+                    raise AssertionError('Saved device exists but its independently drawn preview was not visibly rendered.')
+                await asyncio.sleep(.1)
+            passed('Add-PC dialog saves the exact entered name and address and paints the actual device card')
             await edit(page, 'Search devices', 'no-match')
             await expect(connect).to_have_count(0)
             await edit(page, 'Search devices', '')

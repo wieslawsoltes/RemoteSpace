@@ -47,11 +47,11 @@
               <Grid Grid.Row="2">
                 <GridView x:Name="Devices" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch">
                   <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="316" ItemHeight="284" /></ItemsPanelTemplate></GridView.ItemsPanel>
-                  <GridView.ItemContainerStyle><Style TargetType="GridViewItem"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,16,16" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></GridView.ItemContainerStyle>
+                  <GridView.ItemContainerStyle><Style TargetType="GridViewItem" BasedOn="{StaticResource GridViewItemExpanded}"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,16,16" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></GridView.ItemContainerStyle>
                   <GridView.ItemTemplate><DataTemplate><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></GridView.ItemTemplate>
                 </GridView>
                 <ListView x:Name="DeviceList" Visibility="Collapsed" SelectionMode="None" HorizontalContentAlignment="Stretch">
-                  <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,0,8" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListView.ItemContainerStyle>
+                  <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemExpanded}"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,0,8" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListView.ItemContainerStyle>
                   <ListView.ItemTemplate><DataTemplate><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></ListView.ItemTemplate>
                 </ListView>
                 <StackPanel x:Name="Empty" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" MaxWidth="440" Margin="0,12">
