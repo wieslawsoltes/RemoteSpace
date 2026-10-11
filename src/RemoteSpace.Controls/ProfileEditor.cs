@@ -29,7 +29,14 @@ public sealed class ProfileEditor : UserControl
         body.Children.Add(_host);
         var advanced = new StackPanel { Spacing = 12 };
         foreach (var element in new FrameworkElement[] { _name, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard }) advanced.Children.Add(element);
-        body.Children.Add(new Expander { Header = "Additional settings", Content = advanced, IsExpanded = profile is not null, HorizontalAlignment = HorizontalAlignment.Stretch });
+        // Uno Skia can expose zero-sized semantic peers for collapsed Expander
+        // content. Detach the content, retaining the controls and their values,
+        // so keyboard/screen-reader focus cannot target invisible fields.
+        var expansion = new Expander { Header = "Additional settings", IsExpanded = profile is not null, HorizontalAlignment = HorizontalAlignment.Stretch };
+        expansion.Expanded += (_, _) => expansion.Content = advanced;
+        expansion.Collapsed += (_, _) => expansion.Content = null;
+        expansion.Content = expansion.IsExpanded ? advanced : null;
+        body.Children.Add(expansion);
         body.Children.Add(new TextBlock { Text = "Passwords are requested only when connecting and are never saved. Certificate trust is checked; unknown certificates require an explicit fingerprint obtained from the administrator.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
         Content = new ScrollViewer { Content = body, MaxHeight = 530, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
