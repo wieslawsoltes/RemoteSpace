@@ -98,6 +98,11 @@ public sealed partial class MainPage
         ConnectionProfile? connectAfter = null;
         try
         {
+            // The Skia menu's semantic keydown invokes this command before the
+            // same event bubbles to native keyboard routing. Opening a default-
+            // Save dialog synchronously lets that Enter immediately save it.
+            // Reserve the dialog slot now, but create it on the next UI turn.
+            await Task.Yield();
             var editor = new ProfileEditor(original); var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
             var content = new StackPanel { Spacing = 12 }; content.Children.Add(error); content.Children.Add(editor);
             var dialog = new ContentDialog { Title = original is null ? "Add a PC" : "Edit PC", Content = content, PrimaryButtonText = original is null ? "Add" : "Save", SecondaryButtonText = original is null ? "Add & connect" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot };
