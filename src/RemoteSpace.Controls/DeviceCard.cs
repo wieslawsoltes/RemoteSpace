@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using RemoteSpace.Profiles;
 
 namespace RemoteSpace.Controls;
@@ -12,37 +11,53 @@ public sealed class DeviceActionEventArgs(ConnectionProfile profile, string acti
     public string Action { get; } = action;
 }
 
-/// <summary>Reusable device tile with accessible commands; it does not connect or persist data itself.</summary>
-public sealed class DeviceCard : UserControl
+/// <summary>One reusable visual tree for tiles and rows. Rebinding a recycled device
+/// updates values, never rebuilds controls. No connection or storage is owned here.</summary>
+public sealed partial class DeviceCard : UserControl
 {
     public static readonly DependencyProperty ProfileProperty = DependencyProperty.Register(nameof(Profile), typeof(ConnectionProfile), typeof(DeviceCard), new PropertyMetadata(null, Changed));
+    public static readonly DependencyProperty LastConnectedProperty = DependencyProperty.Register(nameof(LastConnected), typeof(DateTimeOffset?), typeof(DeviceCard), new PropertyMetadata(null, Changed));
+    public static readonly DependencyProperty IsListProperty = DependencyProperty.Register(nameof(IsList), typeof(bool), typeof(DeviceCard), new PropertyMetadata(false, Changed));
     public ConnectionProfile? Profile { get => (ConnectionProfile?)GetValue(ProfileProperty); set => SetValue(ProfileProperty, value); }
+    public DateTimeOffset? LastConnected { get => (DateTimeOffset?)GetValue(LastConnectedProperty); set => SetValue(LastConnectedProperty, value); }
+    public bool IsList { get => (bool)GetValue(IsListProperty); set => SetValue(IsListProperty, value); }
     public event EventHandler<DeviceActionEventArgs>? ActionRequested;
-    private static void Changed(DependencyObject sender, DependencyPropertyChangedEventArgs _) => ((DeviceCard)sender).Rebuild();
-    public DeviceCard() { MinWidth = 250; HorizontalAlignment = HorizontalAlignment.Stretch; Rebuild(); }
-    private void Rebuild()
+    public DeviceCard() { InitializeComponent(); HorizontalAlignment = HorizontalAlignment.Stretch; Update(); }
+    private static void Changed(DependencyObject sender, DependencyPropertyChangedEventArgs _) => ((DeviceCard)sender).Update();
+    private void Update()
     {
-        var panel = new StackPanel { Spacing = 12, Padding = new Thickness(16), MinWidth = 248 };
-        var illustration = new Border { Height = 112, CornerRadius = new CornerRadius(6), Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 225, 237, 250)) };
-        illustration.Child = new FontIcon { Glyph = "\uE7F4", FontSize = 52, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 30, 99, 181)) };
-        panel.Children.Add(illustration);
-        panel.Children.Add(new TextBlock { Text = Profile?.Name ?? "PC", FontSize = 17, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
-        panel.Children.Add(new TextBlock { Text = Profile is { } p ? $"{p.Host}:{p.Port}" : "", Opacity = .7, TextTrimming = TextTrimming.CharacterEllipsis });
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var connect = new Button { Content = "Connect", MinWidth = 118, HorizontalAlignment = HorizontalAlignment.Stretch };
-        AutomationProperties.SetName(connect, "Connect to " + Profile?.Name);
-        connect.Click += (_, _) => Request("connect"); row.Children.Add(connect);
-        var favorite = new Button { Content = Profile?.Favorite == true ? "★" : "☆", Padding = new Thickness(10, 5, 10, 5) };
-        AutomationProperties.SetName(favorite, "Toggle favorite " + Profile?.Name);
-        favorite.Click += (_, _) => Request("favorite"); row.Children.Add(favorite);
+        if (DeviceName is null) return;
+        var p = Profile;
+        DeviceName.Text = p?.Name ?? "Remote PC";
+        DeviceAddress.Text = p is null ? "" : (p.Host.Contains(':') ? $"[{p.Host}]:{p.Port}" : $"{p.Host}:{p.Port}") + " · " + p.Group;
+        Recency.Text = LastConnected is { } time ? "Last connected " + time.ToLocalTime().ToString("g") : "Not connected yet";
+        FavoriteIcon.Glyph = p?.Favorite == true ? "\uE735" : "\uE734";
+        Artwork.Variant = p is null ? 0 : (int)((uint)p.Id.GetHashCode() % 3);
+        AutomationProperties.SetName(ConnectButton, "Connect to " + p?.Name);
+        AutomationProperties.SetName(PreviewButton, "Open " + p?.Name);
+        AutomationProperties.SetName(FavoriteButton, "Toggle favorite " + p?.Name);
+        AutomationProperties.SetName(MoreButton, "Options for " + p?.Name);
+        ToolTipService.SetToolTip(DeviceName, p?.Name);
+        ToolTipService.SetToolTip(DeviceAddress, DeviceAddress.Text);
+        ToolTipService.SetToolTip(FavoriteButton, p?.Favorite == true ? "Remove from favorites" : "Add to favorites");
+        Grid.SetColumnSpan(Preview, IsList ? 1 : 2);
+        Grid.SetRow(Details, IsList ? 0 : 1); Grid.SetColumn(Details, IsList ? 1 : 0); Grid.SetColumnSpan(Details, IsList ? 1 : 2);
+        Preview.Width = IsList ? 100 : double.NaN; Preview.Height = IsList ? 120 : 132;
+        TypeBadge.Visibility = IsList ? Visibility.Collapsed : Visibility.Visible;
+        Details.Padding = IsList ? new Thickness(12, 10, 12, 10) : new Thickness(16, 12, 16, 14);
+    }
+    private void ConnectClicked(object sender, RoutedEventArgs e) => Request("connect");
+    private void FavoriteClicked(object sender, RoutedEventArgs e) => Request("favorite");
+    private void MoreClicked(object sender, RoutedEventArgs e)
+    {
+        // Allocate menus only when requested, not for every virtualized item.
         var menu = new MenuFlyout();
-        foreach (var (text, action) in new[] { ("Edit", "edit"), ("Export .rdp", "export"), ("Delete", "delete") })
+        foreach (var (label, action) in new[] { ("Connect", "connect"), ("Edit", "edit"), ("Duplicate", "duplicate"), ("View details", "details"),
+                     (Profile?.Favorite == true ? "Remove from favorites" : "Add to favorites", "favorite"), ("Export .rdp", "export"), ("Delete", "delete") })
         {
-            var item = new MenuFlyoutItem { Text = text }; item.Click += (_, _) => Request(action); menu.Items.Add(item);
+            var item = new MenuFlyoutItem { Text = label }; item.Click += (_, _) => Request(action); menu.Items.Add(item);
         }
-        var more = new Button { Content = "⋯", Flyout = menu }; AutomationProperties.SetName(more, "Options for " + Profile?.Name); row.Children.Add(more);
-        panel.Children.Add(row);
-        Content = new Border { CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"], Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"], Child = panel };
+        menu.ShowAt(MoreButton);
     }
     private void Request(string action) { if (Profile is { } profile) ActionRequested?.Invoke(this, new(profile, action)); }
 }

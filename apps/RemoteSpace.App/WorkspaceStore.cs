@@ -22,7 +22,7 @@ internal sealed class WorkspaceStore
             if (_browserDocument is not null)
             {
                 var current = DeviceCatalog.Parse(_browserDocument);
-                _revision = current.Snapshot().Revision; return current;
+                _revision = current.Revision; return current;
             }
 #endif
             var file = await ApplicationData.Current.LocalFolder.TryGetItemAsync(Name) as StorageFile;
@@ -35,7 +35,7 @@ internal sealed class WorkspaceStore
                 await BrowserWorkspaceStore.ReplaceAsync(null, migrated); _browserDocument = migrated;
             }
 #endif
-            _revision = catalog.Snapshot().Revision; return catalog;
+            _revision = catalog.Revision; return catalog;
         }
         finally { _gate.Release(); }
     }
@@ -48,7 +48,7 @@ internal sealed class WorkspaceStore
 #if __WASM__
             string next = catalog.Serialize();
             await BrowserWorkspaceStore.ReplaceAsync(_browserDocument, next);
-            _browserDocument = next; _revision = catalog.Snapshot().Revision;
+            _browserDocument = next; _revision = catalog.Revision;
 #else
             var folder = ApplicationData.Current.LocalFolder;
             var existing = await folder.TryGetItemAsync(Name) as StorageFile;
@@ -60,7 +60,7 @@ internal sealed class WorkspaceStore
                 await FileIO.WriteTextAsync(temporary, catalog.Serialize());
                 if (existing is null) await temporary.RenameAsync(Name, NameCollisionOption.FailIfExists);
                 else await temporary.MoveAndReplaceAsync(existing);
-                _revision = catalog.Snapshot().Revision;
+                _revision = catalog.Revision;
             }
             catch { try { await temporary.DeleteAsync(); } catch { } throw; }
 #endif

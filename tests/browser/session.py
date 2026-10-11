@@ -119,7 +119,7 @@ async def run(site, output):
                 # Change selection while closed. Enter in a ContentDialog can
                 # submit its default Save command rather than open this peer.
                 await security.press('Home');await security.press('ArrowDown');await security.press('Tab')
-                await command(page,'Save')
+                await command(page,'Add')
                 await expect(page.get_by_role('button',name='Connect to Loopback desktop',exact=True)).to_be_attached(timeout=30000)
                 await command(page,'Connect to Loopback desktop')
                 await edit(page,'Connection password',password)

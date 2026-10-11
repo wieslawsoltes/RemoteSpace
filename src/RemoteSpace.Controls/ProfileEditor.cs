@@ -18,23 +18,27 @@ public sealed class ProfileEditor : UserControl
     private readonly CheckBox _clipboard = new() { Content = "Allow text clipboard redirection (opt-in)" };
     public ProfileEditor(ConnectionProfile? profile = null)
     {
-        _original = profile ?? new(); _name.Text = _original.Name; _host.Text = _original.Host; _group.Text = _original.Group;
+        _original = profile ?? new(); _name.Text = profile?.Name ?? ""; _host.Text = _original.Host; _group.Text = _original.Group;
         _user.Text = _original.UserName; _domain.Text = _original.Domain; _pin.Text = _original.CertificateSha256 ?? "";
         _port.Value = _original.Port; _width.Value = _original.Width; _height.Value = _original.Height;
         _security.Items.Add("Network Level Authentication (recommended)"); _security.Items.Add("TLS (only for hosts explicitly configured without NLA)"); _security.SelectedIndex = (int)_original.Security;
         _depth.Items.Add("24-bit"); _depth.Items.Add("16-bit"); _depth.SelectedIndex = _original.BitsPerPixel == 16 ? 1 : 0;
         _clipboard.IsChecked = _original.RedirectClipboard;
-        var body = new StackPanel { Spacing = 12, MinWidth = 350, MaxWidth = 600 };
-        foreach (var element in new FrameworkElement[] { _name, _host, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard }) body.Children.Add(element);
+        var body = new StackPanel { Spacing = 14, MinWidth = 250, MaxWidth = 560 };
+        _host.PlaceholderText = "Computer name or IP address";
+        body.Children.Add(_host);
+        var advanced = new StackPanel { Spacing = 12 };
+        foreach (var element in new FrameworkElement[] { _name, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard }) advanced.Children.Add(element);
+        body.Children.Add(new Expander { Header = "Additional settings", Content = advanced, IsExpanded = profile is not null, HorizontalAlignment = HorizontalAlignment.Stretch });
         body.Children.Add(new TextBlock { Text = "Passwords are requested only when connecting and are never saved. Certificate trust is checked; unknown certificates require an explicit fingerprint obtained from the administrator.", TextWrapping = TextWrapping.Wrap, Opacity = .7 });
         Content = new ScrollViewer { Content = body, MaxHeight = 530, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
     public ConnectionProfile ReadProfile()
     {
-        if (string.IsNullOrWhiteSpace(_name.Text) || _name.Text.Length > 256 || _name.Text.Any(char.IsControl) || _group.Text.Length > 256 || _group.Text.Any(char.IsControl)) throw new ArgumentException("Enter a valid friendly name and group.");
+        if (_name.Text.Length > 256 || _name.Text.Any(char.IsControl) || _group.Text.Length > 256 || _group.Text.Any(char.IsControl)) throw new ArgumentException("Enter a valid friendly name and group.");
         var result = _original with
         {
-            Name = _name.Text.Trim(), Host = _host.Text.Trim(), Port = Integer(_port.Value, "port"), Group = _group.Text.Trim(),
+            Name = string.IsNullOrWhiteSpace(_name.Text) ? _host.Text.Trim() : _name.Text.Trim(), Host = _host.Text.Trim(), Port = Integer(_port.Value, "port"), Group = _group.Text.Trim(),
             UserName = _user.Text.Trim(), Domain = _domain.Text.Trim(), Width = Integer(_width.Value, "width"), Height = Integer(_height.Value, "height"),
             BitsPerPixel = _depth.SelectedIndex == 1 ? 16 : 24, Security = (SecurityMode)_security.SelectedIndex,
             CertificateSha256 = string.IsNullOrWhiteSpace(_pin.Text) ? null : _pin.Text.Trim().Replace(":", ""), RedirectClipboard = _clipboard.IsChecked == true

@@ -150,9 +150,11 @@ public sealed class DeviceCatalog
         // Filtering the cached order avoids sorting on every keystroke. Only one
         // last-result cache is retained, so arbitrary searches cannot grow memory.
         return _query = search.Length == 0 && !favoritesOnly && group is null ? ordered :
+            Filter(ordered, search, favoritesOnly, group);
+    }
+    private static IReadOnlyList<SavedDevice> Filter(IReadOnlyList<SavedDevice> ordered, string search, bool favoritesOnly, string? group) =>
             Array.AsReadOnly(ordered.Where(d => (!favoritesOnly || d.Profile.Favorite) && (group is null || d.Profile.Group == group) &&
                 (d.Profile.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || d.Profile.Host.Contains(search, StringComparison.OrdinalIgnoreCase) || d.Profile.Group.Contains(search, StringComparison.OrdinalIgnoreCase))).ToArray());
-    }
     public string Serialize()
     {
         string json = JsonSerializer.Serialize(_document, WorkspaceJsonContext.Default.WorkspaceDocument);

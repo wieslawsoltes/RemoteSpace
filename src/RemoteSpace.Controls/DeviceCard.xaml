@@ -1,0 +1,24 @@
+<UserControl x:Class="RemoteSpace.Controls.DeviceCard" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:RemoteSpace.Controls">
+  <Border x:Name="CardBorder" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+    <Grid x:Name="Layout" RowDefinitions="Auto,Auto" ColumnDefinitions="Auto,*">
+      <Grid x:Name="Preview" Grid.ColumnSpan="2" Height="132">
+        <Button x:Name="PreviewButton" Padding="0" BorderThickness="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" CornerRadius="7,7,0,0" Click="ConnectClicked">
+          <local:DeviceArtwork x:Name="Artwork" IsHitTestVisible="False" />
+        </Button>
+        <Border x:Name="TypeBadge" Background="#EFFFFFFF" CornerRadius="4" Padding="7,3" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="12">
+          <TextBlock Text="Remote PC" Foreground="#303C4E" FontSize="11" />
+        </Border>
+      </Grid>
+      <Grid x:Name="Details" Grid.Row="1" Grid.ColumnSpan="2" Padding="16,12,16,14" RowDefinitions="Auto,Auto,Auto,Auto">
+        <TextBlock x:Name="DeviceName" FontSize="16" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+        <TextBlock x:Name="DeviceAddress" Grid.Row="1" FontSize="12" Margin="0,5,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+        <TextBlock x:Name="Recency" Grid.Row="2" FontSize="11" Margin="0,6,0,12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+          <Button x:Name="ConnectButton" Content="Connect" Style="{StaticResource AccentButtonStyle}" Padding="16,4" HorizontalAlignment="Left" Click="ConnectClicked" />
+          <Button x:Name="FavoriteButton" Grid.Column="1" Padding="6" BorderThickness="0" Background="Transparent" Click="FavoriteClicked"><FontIcon x:Name="FavoriteIcon" Glyph="&#xE734;" FontSize="16" /></Button>
+          <Button x:Name="MoreButton" Grid.Column="2" Padding="6" BorderThickness="0" Background="Transparent" Click="MoreClicked"><FontIcon Glyph="&#xE712;" FontSize="16" /></Button>
+        </Grid>
+      </Grid>
+    </Grid>
+  </Border>
+</UserControl>

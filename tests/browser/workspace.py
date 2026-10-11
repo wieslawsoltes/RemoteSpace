@@ -10,6 +10,7 @@ import tempfile
 import traceback
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
+from workspace_ui import validate_workspace_ui
 
 async def run(site, output):
     output.mkdir(parents=True, exist_ok=True)
@@ -34,7 +35,7 @@ async def run(site, output):
             await page.get_by_role('button', name='Add your first PC', exact=True).click(force=True)
             await edit(page, 'Friendly name', 'Test workstation')
             await edit(page, 'PC address', 'rdp.test.invalid')
-            await command(page, 'Save')
+            await command(page, 'Add')
             connect = page.get_by_role('button', name='Connect to Test workstation', exact=True)
             await expect(connect).to_be_attached(timeout=30000)
             passed('Add-PC dialog saves the exact entered name and address')
@@ -55,6 +56,7 @@ async def run(site, output):
             await expect(page.get_by_text('Set your authenticated wss:// bridge endpoint in Settings before connecting from the browser.', exact=True)).to_be_attached()
             passed('Missing bridge is diagnosed without pretending to connect')
             await page.screenshot(path=str(output/'03-connection-requirement.png'))
+            await validate_workspace_ui(page, output, passed)
             if errors: raise AssertionError('Uncaught browser errors: ' + '\n'.join(errors))
             passed('No uncaught JavaScript or WASM errors')
         except BaseException:

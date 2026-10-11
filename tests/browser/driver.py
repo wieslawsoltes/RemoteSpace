@@ -43,6 +43,9 @@ async def edit(page, label, value):
                 raise AssertionError(f'{label}: the control did not acknowledge text entry')
             await asyncio.sleep(.02)
     try:
+        if not await box.count():
+            expansion = page.get_by_role('button', name='Additional settings', exact=True)
+            if await expansion.count(): await expansion.press('Space')
         await expect(box).to_be_attached(timeout=30000)
         await box.focus()
         await checkpoint()
