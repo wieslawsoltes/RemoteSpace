@@ -27,7 +27,9 @@ async def run(site, output):
         print('PASS', name, flush=True)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(args=['--enable-unsafe-swiftshader'])
-        page = await browser.new_page(viewport={'width':1440, 'height':1000})
+        # An explicit context supports multiple app windows sharing IndexedDB.
+        context = await browser.new_context(viewport={'width':1440, 'height':1000}, accept_downloads=True)
+        page = await context.new_page()
         page.on('console', lambda message: messages.append(message.type + ': ' + message.text))
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
@@ -92,6 +94,7 @@ async def run(site, output):
             (output/'checks.json').write_text(json.dumps(checks, indent=2))
             (output/'final-dom.html').write_text(await page.content())
             await page.screenshot(path=str(output/'final.png'))
+            await context.close()
             await browser.close()
             server.shutdown(); server.server_close(); webroot.cleanup()
 

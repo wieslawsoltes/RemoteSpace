@@ -99,7 +99,12 @@ public sealed partial class MainPage : Page
     private async Task ShowDialog(string title, object content)
     {
         if (_dialogOpen) return; _dialogOpen = true;
-        try { await new AccessibleInfoDialog(title, content) { XamlRoot = XamlRoot }.ShowAsync(); }
+        try
+        {
+            var dialog = AccessibleInfoDialog.Create(title, content);
+            dialog.XamlRoot = XamlRoot;
+            await dialog.ShowAsync();
+        }
         catch (Exception e) { ShowError(e.Message); }
         finally { _dialogOpen = false; }
     }

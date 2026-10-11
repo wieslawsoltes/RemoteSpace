@@ -9,19 +9,20 @@ namespace RemoteSpace.Controls;
 /// <summary>Read-only information dialog with explicit title/body semantics. The
 /// close command has a contextual accessible name while retaining the compact
 /// visible caption. Uses the public visual tree, not browser DOM manipulation.</summary>
-public sealed class AccessibleInfoDialog : ContentDialog
+public static class AccessibleInfoDialog
 {
-    public AccessibleInfoDialog(string title, object content)
+    public static ContentDialog Create(string title, object content)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title);
-        var heading = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap };
+        var heading = new TextBlock { Text = title, TextWrapping = TextWrapping.Wrap, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
         AutomationProperties.SetName(heading, title);
         AutomationProperties.SetHeadingLevel(heading, AutomationHeadingLevel.Level2);
-        Title = heading;
-        Content = content;
-        CloseButtonText = "Close";
+        // Keep the actual framework type so implicit Fluent theme resources,
+        // corner radii and button styling are identical to ordinary dialogs.
+        var dialog = new ContentDialog { Title = heading, Content = content, CloseButtonText = "Close" };
         if (content is TextBlock text) AutomationProperties.SetName(text, text.Text);
-        Opened += (_, _) => NameCloseButton(this, "Close " + title);
+        dialog.Opened += (_, _) => NameCloseButton(dialog, "Close " + title);
+        return dialog;
     }
 
     private static void NameCloseButton(DependencyObject parent, string name)
