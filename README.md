@@ -45,7 +45,7 @@ Open the local browser app, configure your bridge endpoint under Settings, and a
 | `RemoteSpace.Protocol` | Bounded binary readers/writers, TPKT/X.224, BER/PER, MCS/GCC, activation and clipboard framing |
 | `RemoteSpace.Security` | TLS certificate policy and CredSSP using platform negotiation services |
 | `RemoteSpace.Licensing` | Independent RDS licensing exchange and licensing cryptographic primitives |
-| `RemoteSpace.Graphics` | Bitmap/RLE decoding, cursor masks/composition, framebuffer and viewport transforms |
+| `RemoteSpace.Graphics` | Bitmap/RLE decoding, cursor masks/composition, framebuffer, bounded latest-frame mailbox and viewport transforms |
 | `RemoteSpace.Channels` | DVC v1/v2 negotiation, bounded fragmentation, priority scheduling and display-control codecs |
 | `RemoteSpace.Client` | Direct TCP/TLS RDP session engine and channel integration |
 | `RemoteSpace.Input` | Physical-key mapping, held-input tracking, release sequences and Unicode input |
@@ -60,7 +60,7 @@ A control consumes `IRemoteSession`; it does not own the transport or profile pe
 
 ## Validation and publishing
 
-[GitHub Actions](https://github.com/wieslawsoltes/RemoteSpace/actions) runs Windows/Linux component tests, native RDP interoperability, Uno desktop/browser compilation, reusable-package builds, and browser interaction checks. The browser session test connects through the real bridge to the loopback XRDP fixture, verifies a server-side keyboard effect, and waits for server-confirmed resized desktop pixels. No synthetic desktop is substituted for this path.
+[GitHub Actions](https://github.com/wieslawsoltes/RemoteSpace/actions) runs Windows/Linux component tests, native RDP interoperability, Uno desktop/browser compilation, reusable-package builds, and browser interaction checks. The browser session test connects through the real bridge to the loopback XRDP fixture, verifies visibly composed desktop pixels and a server-side keyboard effect, waits for server-confirmed resized desktop pixels, and exercises consent-based Unicode clipboard transfers in both directions. No synthetic desktop is substituted for this path.
 
 The Uno workflow publishes to GitHub Pages only from `main`, after its build and browser jobs succeed. It checks the deployed `commit.txt` against the built source revision. Source/history snapshots, logs, screenshots, package files, and browser distributions are retained as workflow artifacts. [Validation procedures and scope](docs/validation.md).
 

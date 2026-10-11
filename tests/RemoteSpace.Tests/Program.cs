@@ -6,7 +6,7 @@ using RemoteSpace.Profiles;
 
 int checks = 0;
 void Check(bool value, string name) { if (!value) throw new Exception("FAILED: " + name); checks++; Console.WriteLine("PASS " + name); }
-void Reject(Action action, string name) { bool thrown = false; try { action(); } catch (Exception e) when (e is ArgumentException or FormatException or IOException) { thrown = true; } Check(thrown, name); }
+void Reject(Action action, string name) { bool thrown = false; try { action(); } catch (Exception e) when (e is ArgumentException or FormatException or IOException or InvalidDataException) { thrown = true; } Check(thrown, name); }
 Check(Convert.ToHexString(Negotiation.Request(SecurityProtocols.Tls | SecurityProtocols.Hybrid)) == "030000130EE000000000000100080003000000", "X.224 negotiation golden bytes");
 var confirm = Convert.FromHexString("0ED000000000000200080002000000");
 Check(Negotiation.ParseConfirm(confirm, SecurityProtocols.Hybrid).Protocol == SecurityProtocols.Hybrid, "security negotiation");

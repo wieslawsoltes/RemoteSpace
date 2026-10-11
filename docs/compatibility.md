@@ -9,13 +9,13 @@ This document describes source implementation scope, not blanket Windows App par
 | Graphics | 16/24-bit bitmap path, interleaved RLE, fast-path assembly, framebuffer bounds | No modern GFX/AVC/RemoteFX/progressive/bulk-compressed graphics pipeline |
 | Cursor | Color/ARGB and monochrome AND/XOR behavior, cache and position | Full device/OS cursor interaction matrix is not established |
 | Input | Keyboard scan codes, Unicode, pointer buttons/wheel, focus-loss releases, secure-attention sequence | Browser uses virtual-key fallback; IME, touch/pen and every keyboard layout are not at Windows App parity |
-| Clipboard | Opt-in text channel and explicit local clipboard commands | No clipboard file transfer, rich formats or drive redirection |
+| Clipboard | Opt-in Unicode text channel and explicit local clipboard commands; bidirectional browser/remote test | No clipboard file transfer, rich formats or drive redirection; 1 MiB UTF-16 / 2 MiB encoded bridge-message limits |
 | Dynamic channels | v1/v2 negotiation, variable IDs, fragmentation, bounded per-channel state, v2 priorities | v3 compression, UDP/multitransport and unrelated dynamic-channel services are not advertised |
 | Display control | Server capabilities, full-layout codecs, bounded monitor geometry, remote-resolution presets and reactivation | Multi-monitor wire layout support is not a full per-monitor native-window UI or browser multi-screen implementation |
 | Device workspace | Add/edit/delete, favorites, search, sorting, tile/list, theme, `.rdp` import/export and saved device documents | No cloud account discovery, workspace subscriptions, roaming or enterprise administration |
 | Browser persistence | IndexedDB transactions, exact-document compare-and-replace, reload persistence, legacy local-file migration | Browser storage can be cleared/evicted; export saved devices for a backup. Native file persistence is not a distributed lock |
 | Desktop / browser UI | Shared Uno application and reusable controls | Independent Fluent-style design; not pixel-perfect Windows App visuals or complete UI parity |
-| Rendering | Uno Skia compositor, bounded surface updates, dirty presentation, cursor composition | CPU decoding; hardware GPU acceleration depends on host. CI software rendering is not a hardware benchmark |
+| Rendering | Uno Skia compositor, bounded latest-frame mailbox, dirty presentation, cursor composition, screenshot pixel checks | CPU decoding; hardware GPU acceleration depends on host. CI software rendering is not a hardware benchmark |
 | Browser connectivity | Authenticated WebSocket bridge, explicit origin/target allowlists, limits and cancellation | Trusted bridge terminates RDP and sees credentials. Static hosting is not direct TCP RDP or RD Gateway |
 
 ## Not implemented

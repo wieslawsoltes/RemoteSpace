@@ -12,9 +12,9 @@ Only explicitly allowlisted target host/port pairs can be used. Restrict server 
 
 ## Limits
 
-Authentication, connection establishment and reactivation have bounded waits. Concurrent bridge sessions, messages, queued bytes, input rates, clipboard requests, display requests and framebuffer dimensions are bounded. Dynamic-channel fragments have aggregate allocation limits and malformed state is discarded. A slow browser is disconnected instead of receiving silently dropped framebuffer state.
+Authentication, connection establishment and reactivation have bounded waits. Concurrent bridge sessions, messages, queued bytes, input rates, clipboard requests, display requests and framebuffer dimensions are bounded. Dynamic-channel fragments have aggregate allocation limits and malformed state is discarded. Pending desktop updates are composited into a fixed-size latest-frame buffer and emitted as independent snapshots; they do not accumulate an unbounded packet queue. Intermediate presentation frames may be coalesced without losing their pixel effects. Input is not silently dropped. Exhausted control/input queues and transport failures terminate the affected session explicitly.
 
-Clipboard text is opt-in. This preview does not expose drives, arbitrary files, printers, USB devices, smart cards, microphones or cameras. Unsupported channels are not implicitly enabled.
+Clipboard text is opt-in. The RDP text payload is limited to 1 MiB including its UTF-16 terminator; browser control messages are limited to 2 MiB after JSON encoding. Both limits apply, including escaping overhead. This preview does not expose drives, arbitrary files, printers, USB devices, smart cards, microphones or cameras. Unsupported channels are not implicitly enabled.
 
 ## Storage and reports
 

@@ -13,7 +13,7 @@ All wire codecs are independent of Uno. The shared `Core` contracts keep surface
 
 ## Session ownership
 
-Create a new session object for each connection attempt. Subscribe to events and attach the view before calling `RunAsync`. Credentials are separate from serializable options and profiles. The owner cancels/disconnects and disposes the session; `RemoteDesktopView` only attaches/detaches event handlers and serializes input. A slow or failed output path is explicitly terminated rather than silently dropping stateful surface or key events.
+Create a new session object for each connection attempt. Subscribe to events and attach the view before calling `RunAsync`. Credentials are separate from serializable options and profiles. The owner cancels/disconnects and disposes the session; `RemoteDesktopView` only attaches/detaches event handlers and serializes input. The bridge composites pending rectangles in a bounded latest-frame mailbox. Input is never silently discarded; exhausted control/input limits or a failed transport still terminate the affected session explicitly.
 
 ## Display-control extension
 
@@ -37,5 +37,11 @@ The bridge extension is opt-in through `EnableDisplayControl` in the initial con
 ## Rendering and persistence
 
 The decoder emits bounded RGBA rectangles. `RemoteDesktopView` updates a Skia bitmap and invalidates dirty presentation on the Uno UI dispatcher. Native cursor masks are composed against the actual underlying desktop. GPU presentation is supplied by the Uno host; decode and bitmap uploads are not a compute-shader implementation.
+
+`FrameMailbox` is a UI-independent producer/consumer handoff. `Resize` starts a new generation, `Apply` composites validated rectangles in arrival order, and `TryTake` returns an independently owned dirty-union snapshot together with its exact desktop geometry. A slow consumer may omit intermediate presentations, but the latest framebuffer retains every update. Old-generation dirty regions cannot be applied to new geometry. No queue grows with repaint count.
+
+The bridge's sole sender writes a changed desktop size before its corresponding pixels, drains bounded control messages, then transmits the dirty snapshot in bounded strips. The mailbox holds at most one 16-megapixel RGBA framebuffer (64 MiB); one in-flight snapshot can require another 64 MiB. Protocol, transport, browser and renderer allocations are additional. The separate control queue is capped at 128 messages and 4 MiB; control overflow is diagnosed and disconnects the consumer. These bounds are not a claim of a 64 MiB total process limit.
+
+Session tabs explicitly stretch vertically: the default Uno TabView alignment is top-aligned and otherwise allows an image-only content row to collapse to zero height. Browser tests inspect actual composed screenshot pixels as well as observing transport events.
 
 Browser persistence uses source-generated .NET JavaScript interop into a fixed module. One IndexedDB read/write transaction compares the exact previous document and commits the replacement. Transaction completion is awaited before a save is reported. No user text is evaluated as JavaScript. Native storage uses a temporary file and replacement with a revision check; that is not a transactional cross-process compare-and-swap.
