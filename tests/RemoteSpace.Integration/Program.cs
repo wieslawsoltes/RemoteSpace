@@ -54,7 +54,16 @@ session.SurfaceUpdated += update => { frame.Apply(update); Interlocked.Increment
 session.ClipboardReceived += text => Console.WriteLine("CLIPBOARD received " + text.Length + " characters");
 Task running = session.RunAsync(options, new SessionCredentials(user, password), deadline.Token);
 await AwaitOrFailure(active.Task); await AwaitOrFailure(pixels.Task);
-await Task.Delay(3000, deadline.Token);
+// RDP activation can precede the Xorg terminal by several seconds. Wait for
+// the fixture's terminal pixels on the RDP wire, not a timing guess or a
+// server-side input injection. Otherwise early keystrokes go to the X root.
+while (!TerminalPainted(frame.Snapshot()))
+{
+    Task finished = await Task.WhenAny(Task.Delay(100, deadline.Token), running);
+    if (finished == running) { await running; throw new Exception("Session ended before the terminal was painted."); }
+    deadline.Token.ThrowIfCancellationRequested();
+}
+Check(true, "remote terminal is painted before keyboard interaction");
 await session.SendInputAsync(new(InputKind.Pointer, 0x0800, 0, 100, 100), deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x8000 | 0x1000, 0, 100, 100), deadline.Token);
 await session.SendInputAsync(new(InputKind.Pointer, 0x1000, 0, 100, 100), deadline.Token);
@@ -97,4 +106,13 @@ async Task AwaitOrFailure(Task expected)
     Task finished = await Task.WhenAny(expected, running).WaitAsync(deadline.Token);
     if (finished == running) { await running; throw new Exception("Session ended before the expected integration event."); }
     await expected;
+}
+
+static bool TerminalPainted(SurfaceUpdate snapshot)
+{
+    int terminalPixels = 0;
+    for (int i = 0; i < snapshot.Rgba.Length; i += 4)
+        if (snapshot.Rgba[i] == 23 && snapshot.Rgba[i + 1] == 57 && snapshot.Rgba[i + 2] == 86 && ++terminalPixels >= 30_000)
+            return true;
+    return false;
 }
