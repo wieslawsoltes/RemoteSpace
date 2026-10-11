@@ -180,8 +180,8 @@ public sealed class DeviceCatalog
     {
         ArgumentNullException.ThrowIfNull(json);
         if (System.Text.Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes) throw new FormatException("Workspace exceeds the storage limit.");
-        var doc = JsonSerializer.Deserialize(json.AsSpan().TrimStart('\ufeff'), WorkspaceJsonContext.Default.WorkspaceDocument) ?? throw new FormatException("Empty workspace.");
-        return new(doc);
+        var doc = JsonSerializer.Deserialize(json.AsSpan().TrimStart('\ufeff'), WorkspaceReadJsonContext.Default.WorkspaceReadDocument) ?? throw new FormatException("Empty workspace.");
+        return new(doc.ToDocument());
     }
     private static WorkspaceDocument Clone(WorkspaceDocument doc) => doc with { Devices = doc.Devices is null ? throw new FormatException("Missing device list.") : (SavedDevice[])doc.Devices.Clone() };
     private static void Validate(WorkspaceDocument doc)
