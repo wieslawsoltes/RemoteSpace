@@ -50,6 +50,12 @@ jobs:
           mkdir -p artifacts/validation
           dotnet run --project tests/RemoteSpace.Tests -c Release 2>&1 | tee artifacts/validation/core-tests.log
           dotnet run --project tests/RemoteSpace.Workspace.Tests -c Release 2>&1 | tee artifacts/validation/workspace-tests.log
+      - name: Clipboard state and browser service regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Clipboard.Tests -c Release 2>&1 | tee artifacts/validation/clipboard-tests.log
+          node --test tests/browser/clipboard-service.test.mjs 2>&1 | tee artifacts/validation/clipboard-service.log
       - name: Pack reusable components
         shell: bash
         run: |

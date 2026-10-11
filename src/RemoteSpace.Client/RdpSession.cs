@@ -28,8 +28,6 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
     private ushort _user, _global, _clipboardChannel;
     private int _started;
     private uint[]? _palette;
-    private bool _longNames, _clipboardReady, _clipboardPending;
-    private string? _localClipboard;
     public SessionState State { get; private set; }
     public event Action<SessionState>? StateChanged;
     public event Action<DesktopSize>? DesktopResized;
@@ -122,46 +120,11 @@ public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
             default: throw new RdpProtocolException("Unsupported pointer message.");
         }
     }
-    private async ValueTask SendClipboardPacketAsync(byte[] data, CancellationToken ct)
-    {
-        foreach (byte[] chunk in ChannelAssembler.Fragment(data)) await SendChannelAsync(_clipboardChannel, chunk, ct);
-    }
-    private async ValueTask ProcessClipboardAsync(ClipboardPacket packet, CancellationToken ct)
-    {
-        switch (packet.Type)
-        {
-            case 7: _longNames = ClipboardCodec.SupportsLongNames(packet.Data); break;
-            case 1:
-                _clipboardReady = true;
-                await SendClipboardPacketAsync(ClipboardCodec.Capabilities(), ct);
-                await SendClipboardPacketAsync(ClipboardCodec.Pdu(2, 0, []), ct); break;
-            case 2:
-                bool text = ClipboardCodec.HasUnicodeText(packet.Data, _longNames);
-                await SendClipboardPacketAsync(ClipboardCodec.Pdu(3, 1, []), ct);
-                if (text && !_clipboardPending) { _clipboardPending = true; await SendClipboardPacketAsync(ClipboardCodec.Pdu(4, 0, new PacketWriter().U32(13).ToArray()), ct); }
-                break;
-            case 4:
-                var request = new PacketReader(packet.Data); uint format = request.U32(); request.End();
-                await SendClipboardPacketAsync(format == 13 && _localClipboard is not null ? ClipboardCodec.TextResponse(_localClipboard) : ClipboardCodec.Pdu(5, 2, []), ct); break;
-            case 5:
-                if (!_clipboardPending) throw new RdpProtocolException("Unsolicited clipboard response.");
-                _clipboardPending = false;
-                if ((packet.Flags & 1) != 0) ClipboardReceived?.Invoke(ClipboardCodec.ReadText(packet.Data)); break;
-            case 3: break;
-            default: Log("Clipboard", $"Unsupported clipboard message {packet.Type}; file and device redirection is not negotiated."); break;
-        }
-    }
     public ValueTask SendInputAsync(RemoteInput input, CancellationToken cancellationToken = default)
     {
         if (State != SessionState.Active || _desktop is null) throw new InvalidOperationException("The remote desktop is not active.");
         if (input.Kind == InputKind.Pointer && (input.X >= _desktop.Width || input.Y >= _desktop.Height)) throw new ArgumentOutOfRangeException(nameof(input));
         return SendShareAsync(Activation.Input(_desktop.ShareId, _user, input), cancellationToken);
-    }
-    public async ValueTask SendClipboardAsync(string text, CancellationToken cancellationToken = default)
-    {
-        if (State != SessionState.Active || !_clipboardReady || _clipboardChannel == 0) throw new InvalidOperationException("Clipboard redirection was not enabled or is not ready.");
-        ClipboardCodec.TextResponse(text); _localClipboard = text;
-        await SendClipboardPacketAsync(ClipboardCodec.FormatList(_longNames), cancellationToken);
     }
     public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
     {

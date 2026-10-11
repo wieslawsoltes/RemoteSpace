@@ -5,7 +5,7 @@ import test from 'node:test';
 
 // Execute the exact fixed module shipped by the reusable Uno service, not a reimplementation.
 const source = readFileSync(new URL('../../src/RemoteSpace.Controls/SystemTextClipboard.cs', import.meta.url), 'utf8')
-    .split('private const string Source = """\n')[1].split('\n""";')[0].replaceAll('export async function', 'async function');
+    .replaceAll('\r\n', '\n').split('private const string Source = """\n')[1].split('\n""";')[0].replaceAll('export async function', 'async function');
 function service(overrides = {}) {
     let content = 'initial';
     const context = vm.createContext({ isSecureContext: true, document: { hasFocus: () => true },
