@@ -45,15 +45,18 @@
                 </ScrollViewer>
               </Grid>
               <Grid Grid.Row="2">
-                <GridView x:Name="Devices" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch">
-                  <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="316" ItemHeight="284" /></ItemsPanelTemplate></GridView.ItemsPanel>
-                  <GridView.ItemContainerStyle><Style TargetType="GridViewItem" BasedOn="{StaticResource GridViewItemExpanded}"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,16,16" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></GridView.ItemContainerStyle>
-                  <GridView.ItemTemplate><DataTemplate><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></GridView.ItemTemplate>
-                </GridView>
-                <ListView x:Name="DeviceList" Visibility="Collapsed" SelectionMode="None" HorizontalContentAlignment="Stretch">
-                  <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemExpanded}"><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0,0,0,8" /><Setter Property="HorizontalContentAlignment" Value="Stretch" /></Style></ListView.ItemContainerStyle>
-                  <ListView.ItemTemplate><DataTemplate><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></ListView.ItemTemplate>
-                </ListView>
+                <ScrollViewer x:Name="DeviceGridScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                  <ItemsRepeater x:Name="Devices" HorizontalCacheLength="0" VerticalCacheLength="1">
+                    <ItemsRepeater.Layout><UniformGridLayout Orientation="Horizontal" MinItemWidth="300" MinItemHeight="268" MinColumnSpacing="16" MinRowSpacing="16" ItemsJustification="Start" ItemsStretch="None" /></ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater>
+                </ScrollViewer>
+                <ScrollViewer x:Name="DeviceListScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                  <ItemsRepeater x:Name="DeviceList" HorizontalCacheLength="0" VerticalCacheLength="1">
+                    <ItemsRepeater.Layout><StackLayout Orientation="Vertical" Spacing="8" /></ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate></ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater>
+                </ScrollViewer>
                 <StackPanel x:Name="Empty" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" MaxWidth="440" Margin="0,12">
                   <FontIcon x:Name="EmptyIcon" Glyph="&#xE7F4;" FontSize="60" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                   <TextBlock x:Name="EmptyTitle" Text="Add a remote PC" FontSize="22" HorizontalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" />

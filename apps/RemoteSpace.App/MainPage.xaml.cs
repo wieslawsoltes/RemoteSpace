@@ -26,6 +26,7 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         Devices.Loaded += (_, _) => UpdateTileSize();
+        DeviceGridScroll.SizeChanged += (_, _) => UpdateTileSize();
         Loaded += async (_, _) =>
         {
             if (_ready || _loading) return;
@@ -77,10 +78,15 @@ public sealed partial class MainPage : Page
     }
     private void UpdateTileSize()
     {
-        if (Devices.ItemsPanelRoot is ItemsWrapGrid wrap)
+        // ItemsWrapGrid is not implemented by the pinned Uno Skia backend.
+        // UniformGridLayout keeps finite viewport-based realization instead of
+        // falling back to GridView's nonvirtualizing WrapPanel.
+        if (Devices?.Layout is UniformGridLayout layout && DeviceGridScroll is not null)
         {
-            wrap.ItemWidth = Math.Max(180, Math.Min(316, WorkspaceContent.ActualWidth - WorkspaceContent.Padding.Left - WorkspaceContent.Padding.Right));
-            wrap.ItemHeight = 284;
+            double available = DeviceGridScroll.ActualWidth > 0 ? DeviceGridScroll.ActualWidth :
+                WorkspaceContent.ActualWidth - WorkspaceContent.Padding.Left - WorkspaceContent.Padding.Right;
+            double width = Math.Max(180, Math.Min(300, available - 16));
+            if (layout.MinItemWidth != width) layout.MinItemWidth = width;
         }
     }
     private void GoToDevices(object sender, RoutedEventArgs args) => Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(i => i.Tag?.ToString() == "devices");

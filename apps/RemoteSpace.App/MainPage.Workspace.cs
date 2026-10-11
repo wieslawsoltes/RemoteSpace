@@ -56,8 +56,8 @@ public sealed partial class MainPage
             // Only the displayed view owns an ItemsSource. Hidden grids don't keep a
             // second set of realized cards or remeasure on every search.
             Devices.ItemsSource = settings.ListView ? null : items; DeviceList.ItemsSource = settings.ListView ? items : null;
-            Devices.Visibility = settings.ListView ? Visibility.Collapsed : Visibility.Visible;
-            DeviceList.Visibility = settings.ListView ? Visibility.Visible : Visibility.Collapsed;
+            DeviceGridScroll.Visibility = settings.ListView ? Visibility.Collapsed : Visibility.Visible;
+            DeviceListScroll.Visibility = settings.ListView ? Visibility.Visible : Visibility.Collapsed;
             DeviceCount.Text = (_section == "favorites" ? "Favorite devices" : _group ?? "Saved devices") + $" ({items.Count})";
             Empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             bool filtered = !string.IsNullOrEmpty(Search.Text) || _group is not null;
