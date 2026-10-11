@@ -5,23 +5,34 @@ namespace RemoteSpace.Protocol;
 /// <summary>Per-channel bounded static virtual-channel reassembly (MS-RDPBCGR 2.2.6.1).</summary>
 public sealed class ChannelAssembler(int maximumLength = 4 * 1024 * 1024)
 {
-    private MemoryStream? _message;
-    private int _expected;
+    private readonly int _limit = maximumLength is >= 0 and <= 4 * 1024 * 1024 ? maximumLength : throw new ArgumentOutOfRangeException(nameof(maximumLength));
+    private byte[]? _message;
+    private int _written;
+    public int BufferedBytes => _message?.Length ?? 0;
     public byte[]? Accept(ReadOnlySpan<byte> chunk)
     {
-        var r = new PacketReader(chunk); uint length = r.U32(), flags = r.U32();
-        if (length > maximumLength || (flags & ~0x13U) != 0) throw new RdpProtocolException("Unsupported channel flags or oversized message.");
-        if ((flags & 1) != 0)
+        try
         {
-            if (_message is not null) throw new RdpProtocolException("Nested first channel fragment.");
-            _expected = (int)length; _message = new MemoryStream(Math.Min(_expected, 65536));
+            var r = new PacketReader(chunk); uint length = r.U32(), flags = r.U32();
+            if (length > _limit || (flags & ~0x13U) != 0) throw new RdpProtocolException("Unsupported channel flags or oversized message.");
+            if ((flags & 1) != 0)
+            {
+                if (_message is not null) throw new RdpProtocolException("Nested first channel fragment.");
+                _message = new byte[(int)length]; _written = 0;
+            }
+            if (_message is null || length != _message.Length || r.Remaining > _message.Length - _written)
+                throw new RdpProtocolException("Out-of-order or overflowing channel fragment.");
+            int count = r.Remaining; r.Bytes(count).CopyTo(_message.AsSpan(_written)); _written += count;
+            if ((flags & 2) == 0) return null;
+            if (_written != _message.Length) throw new RdpProtocolException("Incomplete last channel fragment.");
+            byte[] result = _message; _message = null; _written = 0; return result;
         }
-        if (_message is null || length != _expected || _message.Length + r.Remaining > _expected)
-            throw new RdpProtocolException("Out-of-order or overflowing channel fragment.");
-        _message.Write(r.Bytes(r.Remaining));
-        if ((flags & 2) == 0) return null;
-        if (_message.Length != _expected) throw new RdpProtocolException("Incomplete last channel fragment.");
-        byte[] result = _message.ToArray(); _message.Dispose(); _message = null; return result;
+        catch { Reset(); throw; }
+    }
+    public void Reset()
+    {
+        if (_message is not null) Array.Clear(_message);
+        _message = null; _written = 0;
     }
     public static IEnumerable<byte[]> Fragment(byte[] payload, int chunkSize = 1600)
     {
@@ -103,7 +114,18 @@ public sealed class FastPathAssembler
 {
     private MemoryStream? _parts;
     private byte _code;
+    public void Reset()
+    {
+        if (_parts is not null) { Array.Clear(_parts.GetBuffer()); _parts.Dispose(); _parts = null; }
+        _code = 0;
+    }
     public void Accept(ReadOnlySpan<byte> bytes, Action<byte, byte[]> completed)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        try { Process(bytes, completed); }
+        catch { Reset(); throw; }
+    }
+    private void Process(ReadOnlySpan<byte> bytes, Action<byte, byte[]> completed)
     {
         var r = new PacketReader(bytes);
         while (r.Remaining > 0)

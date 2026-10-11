@@ -11,9 +11,18 @@ public static class Framing
     public static byte[] Tpkt(ReadOnlySpan<byte> payload)
     {
         if (payload.Length > MaximumPacket - 4) throw new ArgumentOutOfRangeException(nameof(payload));
-        return new PacketWriter().U8(3).U8(0).U16BE(payload.Length + 4).Bytes(payload).ToArray();
+        byte[] packet = new byte[payload.Length + 4]; packet[0] = 3;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), (ushort)packet.Length);
+        payload.CopyTo(packet.AsSpan(4)); return packet;
     }
-    public static byte[] Data(ReadOnlySpan<byte> payload) => Tpkt(new PacketWriter().Bytes([2, 0xf0, 0x80]).Bytes(payload).ToArray());
+    public static byte[] Data(ReadOnlySpan<byte> payload)
+    {
+        if (payload.Length > MaximumPacket - 7) throw new ArgumentOutOfRangeException(nameof(payload));
+        byte[] packet = new byte[payload.Length + 7]; packet[0] = 3;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), (ushort)packet.Length);
+        packet[4] = 2; packet[5] = 0xf0; packet[6] = 0x80;
+        payload.CopyTo(packet.AsSpan(7)); return packet;
+    }
     public static byte[] UnwrapData(ReadOnlySpan<byte> payload)
     {
         var r = new PacketReader(payload);

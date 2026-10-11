@@ -14,46 +14,59 @@ public static class BitmapDecoder
         if (bitsPerPixel is not (8 or 15 or 16 or 24 or 32) || (compressed && bitsPerPixel == 32))
             throw new RdpProtocolException("Unsupported bitmap encoding; planar/AVC codecs are not negotiated.");
         int size = (bitsPerPixel + 7) / 8, count = checked(width * height);
-        uint[] pixels = new uint[count];
-        if (compressed) DecodeInterleaved(bytes, pixels, width, size, bitsPerPixel);
-        else
+        int stride = (width * size + 3) & ~3;
+        if (!compressed && bytes.Length != checked(stride * height))
+            throw new RdpProtocolException("Uncompressed bitmap has an invalid padded size.");
+        byte[] rgba = new byte[checked(count * 4)];
+        if (!compressed)
         {
-            int stride = (width * size + 3) & ~3;
-            if (bytes.Length != checked(stride * height)) throw new RdpProtocolException("Uncompressed bitmap has an invalid padded size.");
+            // Convert directly from bottom-up wire rows into the final RGBA surface.
+            // No full-sized uint scratch surface or second conversion pass is needed.
             for (int y = 0; y < height; y++)
             {
-                var row = new PacketReader(bytes.Slice(y * stride, width * size));
-                for (int x = 0; x < width; x++) pixels[y * width + x] = ReadPixel(ref row, size);
+                var row = new PacketReader(bytes.Slice((height - y - 1) * stride, width * size));
+                for (int x = 0; x < width; x++) WriteColor(rgba.AsSpan((y * width + x) * 4, 4), ReadPixel(ref row, size), bitsPerPixel, palette);
             }
+            return rgba;
         }
-        byte[] rgba = new byte[checked(count * 4)];
-        for (int y = 0; y < height; y++)
+        // RLE needs preceding wire-row pixels. Use the result's storage as numeric
+        // scratch, then convert opposing row pairs in place after all XORs are done.
+        // Read both pixels before writing either, including the odd middle row.
+        var pixels = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, uint>(rgba.AsSpan());
+        DecodeInterleaved(bytes, pixels, width, size, bitsPerPixel);
+        for (int y = 0; y < (height + 1) / 2; y++)
         for (int x = 0; x < width; x++)
         {
-            uint p = pixels[(height - y - 1) * width + x]; int offset = (y * width + x) * 4;
-            switch (bitsPerPixel)
-            {
-                case 8:
-                    if (palette is null || p >= palette.Length) throw new RdpProtocolException("Indexed bitmap has no valid palette.");
-                    p = palette[p]; goto default;
-                case 15:
-                    rgba[offset] = Expand5((p >> 10) & 31); rgba[offset + 1] = Expand5((p >> 5) & 31); rgba[offset + 2] = Expand5(p & 31); break;
-                case 16:
-                    rgba[offset] = Expand5((p >> 11) & 31); uint g = (p >> 5) & 63;
-                    rgba[offset + 1] = (byte)((g << 2) | (g >> 4)); rgba[offset + 2] = Expand5(p & 31); break;
-                default:
-                    rgba[offset] = (byte)(p >> 16); rgba[offset + 1] = (byte)(p >> 8); rgba[offset + 2] = (byte)p; break;
-            }
-            rgba[offset + 3] = 255;
+            int top = y * width + x, bottom = (height - y - 1) * width + x;
+            uint a = pixels[top], b = pixels[bottom];
+            WriteColor(rgba.AsSpan(top * 4, 4), b, bitsPerPixel, palette);
+            WriteColor(rgba.AsSpan(bottom * 4, 4), a, bitsPerPixel, palette);
         }
         return rgba;
+    }
+    private static void WriteColor(Span<byte> rgba, uint p, int bitsPerPixel, uint[]? palette)
+    {
+        switch (bitsPerPixel)
+        {
+            case 8:
+                if (palette is null || p >= palette.Length) throw new RdpProtocolException("Indexed bitmap has no valid palette.");
+                p = palette[p]; goto default;
+            case 15:
+                rgba[0] = Expand5((p >> 10) & 31); rgba[1] = Expand5((p >> 5) & 31); rgba[2] = Expand5(p & 31); break;
+            case 16:
+                rgba[0] = Expand5((p >> 11) & 31); uint g = (p >> 5) & 63;
+                rgba[1] = (byte)((g << 2) | (g >> 4)); rgba[2] = Expand5(p & 31); break;
+            default:
+                rgba[0] = (byte)(p >> 16); rgba[1] = (byte)(p >> 8); rgba[2] = (byte)p; break;
+        }
+        rgba[3] = 255;
     }
     private static byte Expand5(uint n) => (byte)((n << 3) | (n >> 2));
     private static uint ReadPixel(ref PacketReader r, int size)
     {
         uint pixel = 0; for (int i = 0; i < size; i++) pixel |= (uint)r.U8() << (i * 8); return pixel;
     }
-    private static void DecodeInterleaved(ReadOnlySpan<byte> data, uint[] target, int width, int bytesPerPixel, int bpp)
+    private static void DecodeInterleaved(ReadOnlySpan<byte> data, Span<uint> target, int width, int bytesPerPixel, int bpp)
     {
         var r = new PacketReader(data); int pos = 0; uint foreground = bpp == 15 ? 0x7fffU : bpp == 16 ? 0xffffU : bpp == 8 ? 255U : 0xffffffU;
         uint white = foreground; bool backgroundPreceded = false;

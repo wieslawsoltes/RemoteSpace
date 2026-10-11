@@ -115,7 +115,7 @@ public sealed partial class RdpSession
                 if (_stream is not null) await _stream.DisposeAsync();
                 if (State != SessionState.Faulted) SetState(SessionState.Disconnected);
             }
-            finally { _tcp?.Dispose(); _licensing?.Dispose(); await ResetClipboardAsync(); _dynamicChannels.Reset(); DisplayCapabilities = null; _completed.TrySetResult(); }
+            finally { _tcp?.Dispose(); _licensing?.Dispose(); _clipboardFragments.Reset(); _dynamicFragments.Reset(); _fastPath.Reset(); await ResetClipboardAsync(); _dynamicChannels.Reset(); DisplayCapabilities = null; _completed.TrySetResult(); }
         }
     }
 }
