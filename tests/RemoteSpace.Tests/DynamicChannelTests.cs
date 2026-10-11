@@ -6,6 +6,15 @@ internal static class DynamicChannelTests
 {
     internal static void Run(Action<bool, string> check, Action<Action, string> reject)
     {
+        var scheduler = new DynamicChannelScheduler(); scheduler.Configure([1,2,4,8]);
+        for (byte p = 0; p < 4; p++) scheduler.Enqueue(p, p, Enumerable.Range(0,200).Select(_ => Enumerable.Repeat(p, 100).ToArray()).ToArray());
+        int[] counts = new int[4]; for (int n = 0; n < 150; n++) { scheduler.TryDequeue(out var packet); counts[packet[0]]++; }
+        check(counts.SequenceEqual(new[] {80,40,20,10}), "DVC v2 charge-weighted bandwidth fairness");
+        scheduler.Clear(); scheduler.Configure([1,0,4,8]);
+        scheduler.Enqueue(0,0,[[0]]); scheduler.Enqueue(1,1,[[1]]);
+        check(scheduler.TryDequeue(out var immediate) && immediate[0] == 1, "DVC zero-charge priority sends immediately");
+        scheduler.Remove(0); check(scheduler.QueuedBytes == 0, "DVC close purges outbound packets");
+        reject(() => scheduler.Enqueue(1,4,[[1]]), "DVC invalid scheduler priority rejected");
         byte[] Create(uint id, int size, string name = "display")
         {
             var w = new PacketWriter().U8(0x10 | size);
@@ -20,7 +29,7 @@ internal static class DynamicChannelTests
         {
             var caps = version == 1 ? new byte[] { 0x50, 0, version, 0 } : new byte[] { 0x50, 0, version, 0, 1, 0, 2, 0, 3, 0, 4, 0 };
             var mux = new DynamicChannels(["display"]);
-            check(mux.Accept(caps).Replies.Single().SequenceEqual(new byte[] { 0x50, 0, 1, 0 }), $"DVC v{version} offer selects implemented v1");
+            check(mux.Accept(caps).Replies.Single().SequenceEqual(new byte[] { 0x50, 0, (byte)Math.Min(version, (byte)2), 0 }), $"DVC v{version} offer selects highest implemented version");
             for (int n = 0; n < caps.Length; n++)
             {
                 var truncated = caps[..n]; reject(() => new DynamicChannels([]).Accept(truncated), $"DVC caps v{version} truncation {n}");

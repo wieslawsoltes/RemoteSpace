@@ -7,9 +7,9 @@ public enum DynamicChannelEventKind { Opened, Data, Closed }
 public sealed record DynamicChannelEvent(DynamicChannelEventKind Kind, uint Id, string Name, byte[] Data);
 public sealed record DynamicChannelResult(byte[][] Replies, DynamicChannelEvent? Event = null);
 
-/// <summary>Independent MS-RDPEDYC client-side v1 multiplexer. Accept receives one reassembled
+/// <summary>Independent MS-RDPEDYC client-side v1/v2 multiplexer. Accept receives one reassembled
 /// drdynvc static-channel message. Call on one receive thread; serialize complete outbound messages.
-/// v2/v3 offers select v1: priorities, compression and multitransport are not falsely advertised.</summary>
+/// v3 offers select v2: compression and multitransport are not falsely advertised.</summary>
 public sealed class DynamicChannels
 {
     public const int MaximumMessage = 4 * 1024 * 1024;
@@ -17,6 +17,7 @@ public sealed class DynamicChannels
     private readonly HashSet<string> _listeners;
     private readonly Dictionary<uint, Channel> _channels = new();
     private int _allocated;
+    private readonly DynamicChannelScheduler _sender = new();
     public int OpenChannelCount => _channels.Count;
     public int BufferedBytes => _allocated;
     public ushort NegotiatedVersion { get; private set; }
@@ -29,9 +30,15 @@ public sealed class DynamicChannels
     public DynamicChannelResult Accept(ReadOnlySpan<byte> packet)
     {
         try { return Process(packet); }
-        catch { Reset(); throw; } // A malformed peer never retains outstanding allocations.
+        catch { Reset(); throw; }
     }
-    public void Reset() { _channels.Clear(); _allocated = 0; NegotiatedVersion = 0; }
+    public void Reset() { _channels.Clear(); _sender.Clear(); _allocated = 0; NegotiatedVersion = 0; }
+    public void QueueData(uint id, ReadOnlySpan<byte> data)
+    {
+        if (!_channels.TryGetValue(id, out var channel)) throw new InvalidOperationException("Cannot send on an unopened dynamic channel.");
+        _sender.Enqueue(id, channel.Priority, Fragment(id, data));
+    }
+    public bool TryDequeue(out byte[] packet) => _sender.TryDequeue(out packet);
     private DynamicChannelResult Process(ReadOnlySpan<byte> packet)
     {
         if (packet.Length > 1600) throw new RdpProtocolException("Oversized dynamic-channel PDU.");
@@ -41,8 +48,9 @@ public sealed class DynamicChannels
             if (size != 0 || r.U8() != 0 || NegotiatedVersion != 0) throw new RdpProtocolException("Invalid or duplicate DVC capabilities.");
             ushort offered = r.U16();
             if (offered is < 1 or > 3) throw new RdpProtocolException("Unsupported DVC capability version.");
-            if (offered >= 2) r.Skip(8); r.End(); NegotiatedVersion = 1;
-            return new([[0x50, 0, 1, 0]]);
+            ushort[] charges = offered >= 2 ? [r.U16(), r.U16(), r.U16(), r.U16()] : [1, 1, 1, 1];
+            r.End(); NegotiatedVersion = (ushort)Math.Min(offered, (ushort)2); _sender.Configure(charges);
+            return new([[0x50, 0, (byte)NegotiatedVersion, 0]]);
         }
         if (NegotiatedVersion == 0) throw new RdpProtocolException("DVC operation before capability negotiation.");
         uint id = ReadVariable(ref r, size);
@@ -53,17 +61,16 @@ public sealed class DynamicChannels
             string name = Encoding.Latin1.GetString(bytes[..^1]);
             if (_channels.ContainsKey(id)) throw new RdpProtocolException("Duplicate DVC channel ID.");
             bool accepted = _listeners.Contains(name) && _channels.Count < MaximumChannels;
-            // Echo cbId, not merely the shortest ID encoding, for interoperability.
             byte[] reply = Variable(new PacketWriter().U8(0x10 | size), id, size).U32(accepted ? 0u : 0xc0000001u).ToArray();
             if (!accepted) return new([reply]);
-            _channels.Add(id, new(name));
+            _channels.Add(id, new(name, NegotiatedVersion >= 2 ? (byte)((header >> 2) & 3) : (byte)0));
             return new([reply], new(DynamicChannelEventKind.Opened, id, name, []));
         }
         if (command == 4)
         {
             r.End();
             if (!_channels.Remove(id, out var closed)) return new([]);
-            _allocated -= closed.Buffer?.Length ?? 0;
+            _allocated -= closed.Buffer?.Length ?? 0; _sender.Remove(id);
             return new([Variable(new PacketWriter().U8(0x40 | size), id, size).ToArray()], new(DynamicChannelEventKind.Closed, id, closed.Name, []));
         }
         if (command is not (2 or 3)) throw new RdpProtocolException("Unnegotiated compressed or unknown DVC command.");
@@ -83,7 +90,6 @@ public sealed class DynamicChannels
         byte[] complete = channel.Buffer; _allocated -= complete.Length; channel.Buffer = null; channel.Written = 0;
         return new([], new(DynamicChannelEventKind.Data, id, channel.Name, complete));
     }
-    /// <summary>Packetize an application message without including static-channel headers.</summary>
     public static byte[][] Fragment(uint id, ReadOnlySpan<byte> message)
     {
         if (message.Length > MaximumMessage) throw new ArgumentOutOfRangeException(nameof(message));
@@ -104,9 +110,10 @@ public sealed class DynamicChannels
     private static int WidthCode(uint value) => value <= byte.MaxValue ? 0 : value <= ushort.MaxValue ? 1 : 2;
     private static uint ReadVariable(ref PacketReader reader, int size) => size switch { 0 => reader.U8(), 1 => reader.U16(), 2 => reader.U32(), _ => throw new RdpProtocolException("Reserved DVC field width.") };
     private static PacketWriter Variable(PacketWriter writer, uint value, int size) => size switch { 0 => writer.U8(checked((byte)value)), 1 => writer.U16(checked((ushort)value)), 2 => writer.U32(value), _ => throw new ArgumentOutOfRangeException(nameof(size)) };
-    private sealed class Channel(string name)
+    private sealed class Channel(string name, byte priority)
     {
         public string Name { get; } = name;
+        public byte Priority { get; } = priority;
         public byte[]? Buffer { get; set; }
         public int Written { get; set; }
     }

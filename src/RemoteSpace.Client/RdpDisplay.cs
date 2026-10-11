@@ -52,7 +52,8 @@ public sealed partial class RdpSession : IRemoteDisplayControl
             if (State != SessionState.Active || _displayChannelId is not { } id || DisplayCapabilities is not { } capabilities)
                 throw new InvalidOperationException("Dynamic resolution was not negotiated or the desktop is not active.");
             byte[] layout = DisplayControlCodec.MonitorLayout(snapshot, capabilities);
-            foreach (var part in DynamicChannels.Fragment(id, layout)) await SendDynamicPacketAsync(part, cancellationToken);
+            _dynamicChannels.QueueData(id, layout);
+            while (_dynamicChannels.TryDequeue(out var part)) await SendDynamicPacketAsync(part, cancellationToken);
             Log("Display", "Display layout sent. Waiting for the server to apply the requested dimensions.");
         }
         finally { _dynamicWriter.Release(); }
