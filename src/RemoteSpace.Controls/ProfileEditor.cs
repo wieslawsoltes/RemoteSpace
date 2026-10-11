@@ -25,7 +25,8 @@ public sealed class ProfileEditor : UserControl
         _depth.Items.Add("24-bit"); _depth.Items.Add("16-bit"); _depth.SelectedIndex = _original.BitsPerPixel == 16 ? 1 : 0;
         _clipboard.IsChecked = _original.RedirectClipboard;
         var body = new StackPanel { Spacing = 14, MinWidth = 250, MaxWidth = 560 };
-        _host.PlaceholderText = "Computer name or IP address";
+        _host.PlaceholderText = "Computer name or IP address[:port]";
+        AutomationProperties.SetHelpText(_host, "An explicit port in the PC address overrides the Port setting. Use brackets for IPv6 with a port.");
         body.Children.Add(_host);
         var advanced = new StackPanel { Spacing = 12 };
         foreach (var element in new FrameworkElement[] { _name, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard }) advanced.Children.Add(element);
@@ -33,7 +34,7 @@ public sealed class ProfileEditor : UserControl
         // content. Detach the content, retaining the controls and their values,
         // so keyboard/screen-reader focus cannot target invisible fields.
         var expansion = new Expander { Header = "Additional settings", IsExpanded = profile is not null, HorizontalAlignment = HorizontalAlignment.Stretch };
-        expansion.Expanded += (_, _) => expansion.Content = advanced;
+        expansion.Expanding += (_, _) => expansion.Content = advanced;
         expansion.Collapsed += (_, _) => expansion.Content = null;
         expansion.Content = expansion.IsExpanded ? advanced : null;
         body.Children.Add(expansion);
@@ -43,9 +44,10 @@ public sealed class ProfileEditor : UserControl
     public ConnectionProfile ReadProfile()
     {
         if (_name.Text.Length > 256 || _name.Text.Any(char.IsControl) || _group.Text.Length > 256 || _group.Text.Any(char.IsControl)) throw new ArgumentException("Enter a valid friendly name and group.");
+        var endpoint = RdpFile.ParseAddressWithDefaultPort(_host.Text, Integer(_port.Value, "port"));
         var result = _original with
         {
-            Name = string.IsNullOrWhiteSpace(_name.Text) ? _host.Text.Trim() : _name.Text.Trim(), Host = _host.Text.Trim(), Port = Integer(_port.Value, "port"), Group = _group.Text.Trim(),
+            Name = string.IsNullOrWhiteSpace(_name.Text) ? endpoint.Host : _name.Text.Trim(), Host = endpoint.Host, Port = endpoint.Port, Group = _group.Text.Trim(),
             UserName = _user.Text.Trim(), Domain = _domain.Text.Trim(), Width = Integer(_width.Value, "width"), Height = Integer(_height.Value, "height"),
             BitsPerPixel = _depth.SelectedIndex == 1 ? 16 : 24, Security = (SecurityMode)_security.SelectedIndex,
             CertificateSha256 = string.IsNullOrWhiteSpace(_pin.Text) ? null : _pin.Text.Trim().Replace(":", ""), RedirectClipboard = _clipboard.IsChecked == true

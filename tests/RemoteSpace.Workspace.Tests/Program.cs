@@ -11,6 +11,7 @@ void Reject(Action action, string name)
     Check(rejected, name);
 }
 CatalogRegressions.Run();
+WorkspaceReviewRegressions.Run();
 await FileStoreRegressions.RunAsync();
 WorkspaceTests.Run(Check, Reject);
 Console.WriteLine($"RESULT: {checks} workspace and input checks passed.");

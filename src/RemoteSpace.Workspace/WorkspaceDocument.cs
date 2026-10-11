@@ -44,6 +44,7 @@ public sealed class DeviceCatalog
     private bool _orderedDescending;
     private (string Search, bool Favorites, string? Group) _queryKey;
     private IReadOnlyList<string>? _groups;
+    public int LastQueryCandidateCount { get; private set; }
     public int Count => _document.Devices.Length;
     public long Revision => _document.Revision;
     public WorkspaceSettings Settings => _document.Settings;
@@ -56,7 +57,7 @@ public sealed class DeviceCatalog
     {
         _indices = _indices, _orderedSource = _orderedSource, _ordered = _ordered,
         _orderedSort = _orderedSort, _orderedDescending = _orderedDescending,
-        _query = _query, _queryKey = _queryKey, _groups = _groups
+        _query = _query, _queryKey = _queryKey, _groups = _groups, LastQueryCandidateCount = LastQueryCandidateCount
     };
     public SavedDevice? Find(Guid id)
     {
@@ -153,11 +154,17 @@ public sealed class DeviceCatalog
         ArgumentNullException.ThrowIfNull(search);
         var ordered = Ordered(); var key = (search, favoritesOnly, group);
         if (_query is not null && _queryKey == key) return _query;
+        // A longer substring can only match devices already matching its prefix.
+        // Backspacing, changing filters, sorting or editing starts from the full
+        // current order again. Retain only one result, never a cache per prefix.
+        var candidates = _query is not null && _queryKey.Favorites == favoritesOnly && _queryKey.Group == group &&
+            search.StartsWith(_queryKey.Search, StringComparison.OrdinalIgnoreCase) ? _query : ordered;
+        LastQueryCandidateCount = candidates.Count;
         _queryKey = key;
         // Filtering the cached order avoids sorting on every keystroke. Only one
         // last-result cache is retained, so arbitrary searches cannot grow memory.
         return _query = search.Length == 0 && !favoritesOnly && group is null ? ordered :
-            Filter(ordered, search, favoritesOnly, group);
+            Filter(candidates, search, favoritesOnly, group);
     }
     private static IReadOnlyList<SavedDevice> Filter(IReadOnlyList<SavedDevice> ordered, string search, bool favoritesOnly, string? group) =>
             Array.AsReadOnly(ordered.Where(d => (!favoritesOnly || d.Profile.Favorite) && (group is null || d.Profile.Group == group) &&
