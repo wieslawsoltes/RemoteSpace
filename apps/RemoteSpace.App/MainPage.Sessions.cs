@@ -19,15 +19,19 @@ public sealed partial class MainPage
         if (_dialogOpen) return;
         if (_sessions.Count >= 8) { ShowError("Close a session before opening another. This preview limits each app window to eight sessions."); return; }
         _dialogOpen = true;
+        PasswordBox? password = null, token = null;
+        IRemoteSession? pendingSession = null;
+        RemoteDesktopView? pendingView = null;
+        OpenSession? pendingTab = null;
         try
         {
             var bridge = _catalog.Settings.BridgeEndpoint;
             if (OperatingSystem.IsBrowser() && string.IsNullOrEmpty(bridge)) { ShowError("Set your authenticated wss:// bridge endpoint in Settings before connecting from the browser."); return; }
             var user = new TextBox { Header = "User name", Text = profile.UserName };
             var domain = new TextBox { Header = "Domain", Text = profile.Domain };
-            var password = new PasswordBox { Header = "Password" }; AutomationProperties.SetName(password, "Connection password");
-            var token = new PasswordBox { Header = "Bridge access token" }; AutomationProperties.SetName(token, "Bridge access token");
-            var fields = new StackPanel { Spacing = 14, MinWidth = 350 };
+            password = new PasswordBox { Header = "Password" }; AutomationProperties.SetName(password, "Connection password");
+            token = new PasswordBox { Header = "Bridge access token" }; AutomationProperties.SetName(token, "Bridge access token");
+            var fields = new StackPanel { Spacing = 14, MinWidth = 250 };
             fields.Children.Add(new TextBlock { Text = $"{profile.Host}:{profile.Port} · {profile.Security}", TextWrapping = TextWrapping.Wrap });
             fields.Children.Add(user); fields.Children.Add(domain); fields.Children.Add(password);
             if (bridge.Length > 0) { fields.Children.Add(new TextBlock { Text = bridge, TextWrapping = TextWrapping.Wrap }); fields.Children.Add(token); }
@@ -41,14 +45,15 @@ public sealed partial class MainPage
 #else
             else session = new RemoteSpace.Client.RdpSession();
 #endif
+            pendingSession = session;
             var credentials = new SessionCredentials(user.Text, password.Password, domain.Text); password.Password = token.Password = "";
-            var view = new RemoteDesktopView(); await view.AttachAsync(session);
+            var view = new RemoteDesktopView(); pendingView = view; await view.AttachAsync(session);
             var state = new TextBlock { Text = "Connecting…", VerticalAlignment = VerticalAlignment.Center };
             var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(8) };
             var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
             panel.Children.Add(new ScrollViewer { Content = toolbar, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }); Grid.SetRow(view, 1); panel.Children.Add(view);
             var tab = new TabViewItem { Header = profile.Name, Content = panel, IsClosable = true };
-            var opened = new OpenSession(profile, session, view, tab); _sessions.Add(opened);
+            var opened = new OpenSession(profile, session, view, tab); pendingTab = opened;
             void Button(string label, Action action) { var b = new Button { Content = label }; b.Click += (_, _) => action(); toolbar.Children.Add(b); }
             AddDisplayControls(session, view, toolbar);
             Button("Fit", () => { view.FitToWindow = true; view.Focus(FocusState.Programmatic); });
@@ -62,8 +67,8 @@ public sealed partial class MainPage
             {
                 try
                 {
-                    var png = view.CapturePng(); var picker = new FileSavePicker { SuggestedFileName = profile.Name + "-desktop" }; picker.FileTypeChoices.Add("PNG image", new List<string> { ".png" });
-                    var file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteBytesAsync(file, png);
+                    if (await _fileAccess.ExportAsync(profile.Name + "-desktop.png", view.CapturePng(), "image/png"))
+                        Status.Text = OperatingSystem.IsBrowser() ? "Screenshot download requested." : "Screenshot saved.";
                 }
                 catch (Exception e) { ShowError(e.Message); }
             }; toolbar.Children.Add(capture); toolbar.Children.Add(state);
@@ -72,16 +77,30 @@ public sealed partial class MainPage
             session.ClipboardReceived += text => DispatcherQueue.TryEnqueue(() => opened.RemoteClipboard = text);
             session.StateChanged += s => DispatcherQueue.TryEnqueue(() =>
             {
+                if (!_sessions.Contains(opened)) return;
                 state.Text = s.ToString(); tab.Header = profile.Name + " · " + s;
                 if (s == SessionState.Active && !opened.RecordedActive) { opened.RecordedActive = true; _ = Mutate(c => { if (c.Find(profile.Id) is not null) c.MarkConnected(profile.Id, DateTimeOffset.UtcNow); }); view.Focus(FocusState.Programmatic); }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
             });
-            Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
+            _sessions.Add(opened); Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
             Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == "sessions");
             opened.Running = RunSession(opened, profile.ToOptions(), credentials);
+            pendingTab = null; pendingView = null; pendingSession = null; // Ownership transferred to the session tab.
         }
         catch (Exception e) { ShowError(e.Message); }
-        finally { _dialogOpen = false; }
+        finally
+        {
+            if (password is not null) password.Password = "";
+            if (token is not null) token.Password = "";
+            try
+            {
+                if (pendingTab is not null) { _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.Stop.Dispose(); RefreshSessionState(); }
+                try { if (pendingView is not null) await pendingView.DisposeAsync(); }
+                finally { if (pendingSession is not null) await pendingSession.DisposeAsync(); }
+            }
+            catch (Exception e) { ShowError("Connection setup cleanup failed: " + e.GetType().Name); }
+            finally { _dialogOpen = false; }
+        }
     }
     private async Task RunSession(OpenSession opened, ConnectionOptions options, SessionCredentials credentials)
     {

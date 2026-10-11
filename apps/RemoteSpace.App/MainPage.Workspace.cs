@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using RemoteSpace.Controls;
+using RemoteSpace.Core;
 using RemoteSpace.Profiles;
 using RemoteSpace.Workspace;
 using Windows.Storage;
@@ -81,14 +82,14 @@ public sealed partial class MainPage
             return true;
         }
         catch (Exception e) { ShowError(e.Message); return false; }
-        finally { RefreshDevices(); _mutations.Release(); }
+        finally { try { RefreshDevices(); } finally { _mutations.Release(); } }
     }
     private async void ReloadDevices(object sender, RoutedEventArgs args)
     {
         await _mutations.WaitAsync();
         try { _catalog = await _store.LoadAsync(); ApplyTheme(_catalog.Settings.Theme); Status.Text = "Saved devices reloaded. Active sessions were not interrupted."; }
         catch (Exception e) { ShowError(e.Message); }
-        finally { RefreshDevices(); _mutations.Release(); }
+        finally { try { RefreshDevices(); } finally { _mutations.Release(); } }
     }
     private async void AddPc(object sender, RoutedEventArgs args) => await EditProfile(null);
     private async Task EditProfile(ConnectionProfile? original)
@@ -134,11 +135,8 @@ public sealed partial class MainPage
     {
         try
         {
-            var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(".rdp");
-            var file = await picker.PickSingleFileAsync(); if (file is null) return;
-            if ((await file.GetBasicPropertiesAsync()).Size > RdpFile.MaxBytes) throw new IOException("The RDP file exceeds 1 MiB.");
-            using var stream = await file.OpenStreamForReadAsync(); using var buffer = new MemoryStream(); await stream.CopyToAsync(buffer);
-            var imported = RdpFile.Parse(buffer.ToArray());
+            var file = await _fileAccess.PickAsync(".rdp", RdpFile.MaxBytes); if (file is null) return;
+            var imported = RdpFile.Parse(file.Bytes);
             if (await Mutate(c => c.Upsert(imported.Profile)) && imported.Warnings.Count > 0) ShowMessage("RDP import", string.Join("\n", imported.Warnings), InfoBarSeverity.Warning);
         }
         catch (Exception e) { ShowError(e.Message); }
@@ -150,7 +148,8 @@ public sealed partial class MainPage
     }
     private async Task SaveText(string title, string name, string extension, string text)
     {
-        var picker = new FileSavePicker { SuggestedFileName = name }; picker.FileTypeChoices.Add(title, new List<string> { extension });
-        var file = await picker.PickSaveFileAsync(); if (file is not null) await FileIO.WriteTextAsync(file, text);
+        var bytes = new System.Text.UTF8Encoding(false, true).GetBytes(text);
+        if (await _fileAccess.ExportAsync(name + extension, bytes, extension == ".json" ? "application/json" : "application/octet-stream"))
+            Status.Text = OperatingSystem.IsBrowser() ? "Download requested. Check your browser's downloads." : "File saved.";
     }
 }

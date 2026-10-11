@@ -20,7 +20,7 @@ public sealed partial class MainPage
         SettingsBody.Children.Add(new TextBlock { Text = "Appearance", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 20, 0, 0) });
         var theme = new ComboBox { Header = "App theme", ItemsSource = Enum.GetNames<WorkspaceTheme>(), SelectedIndex = (int)settings.Theme, MinWidth = 240 };
         AutomationProperties.SetName(theme, "App theme");
-        theme.SelectionChanged += async (_, _) => { await Mutate(c => c.Configure(c.Settings with { Theme = (WorkspaceTheme)theme.SelectedIndex })); ApplyTheme(_catalog.Settings.Theme); }; SettingsBody.Children.Add(theme);
+        theme.SelectionChanged += async (_, _) => { var selected = (WorkspaceTheme)theme.SelectedIndex; await Mutate(c => c.Configure(c.Settings with { Theme = selected })); ApplyTheme(_catalog.Settings.Theme); }; SettingsBody.Children.Add(theme);
         SettingsBody.Children.Add(new TextBlock { Text = "Browser connection bridge", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         var endpoint = new TextBox { Header = "Bridge endpoint", PlaceholderText = "wss://your-bridge.example/session", Text = settings.BridgeEndpoint, MinWidth = 220, HorizontalAlignment = HorizontalAlignment.Stretch };
         AutomationProperties.SetName(endpoint, "Bridge endpoint"); SettingsBody.Children.Add(endpoint);
@@ -31,9 +31,8 @@ public sealed partial class MainPage
         {
             try
             {
-                var picker = new FileOpenPicker(); picker.FileTypeFilter.Add(".json"); var file = await picker.PickSingleFileAsync(); if (file is null) return;
-                if ((await file.GetBasicPropertiesAsync()).Size > DeviceCatalog.MaximumDocumentBytes) throw new IOException("Workspace import exceeds the size limit.");
-                var devices = DeviceCatalog.Parse(await FileIO.ReadTextAsync(file)).Snapshot().Devices;
+                var file = await _fileAccess.PickAsync(".json", DeviceCatalog.MaximumDocumentBytes); if (file is null) return;
+                var devices = DeviceCatalog.Parse(new System.Text.UTF8Encoding(false, true).GetString(file.Bytes)).Snapshot().Devices;
                 if (await Confirm("Import devices", $"Import {devices.Length} saved PCs? Existing IDs will be updated. Connection secrets are not part of this file.", "Import")) await Mutate(c => c.UpsertRange(devices.Select(d => d.Profile)));
             }
             catch (Exception e) { ShowError(e.Message); }

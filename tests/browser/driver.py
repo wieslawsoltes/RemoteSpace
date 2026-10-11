@@ -1,6 +1,8 @@
 """Shared real-browser helpers for the Uno Skia accessibility tree."""
 import asyncio
 import time
+from io import BytesIO
+from PIL import Image
 from playwright.async_api import expect
 
 async def boot(page, url=None):
@@ -18,6 +20,20 @@ async def boot(page, url=None):
         enabler = page.get_by_role('button', name='Enable accessibility', exact=True)
         if await enabler.count():
             await enabler.press('Enter')
+        # The managed Loaded event and semantic peers can precede Skia's first
+        # presentation. Require painted content, not the uniform loader surface,
+        # before reading mouse bounds or taking evidence screenshots.
+        until = time.monotonic() + 60
+        while True:
+            image = Image.open(BytesIO(await page.screenshot())).convert('RGB')
+            content = image.crop((110, 40, min(image.width, 900), min(image.height, 450)))
+            colors = content.getcolors(content.width * content.height)
+            if len(colors) > 64 and sum(n for n, _ in colors) - max(n for n, _ in colors) > 800:
+                break
+            if time.monotonic() >= until:
+                raise AssertionError('The Uno workspace did not visibly paint after managed startup.')
+            await asyncio.sleep(.15)
+        await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     finally:
         page.remove_listener('console', console)
 

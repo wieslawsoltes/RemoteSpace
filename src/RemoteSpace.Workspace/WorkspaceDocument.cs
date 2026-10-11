@@ -27,7 +27,7 @@ public sealed record WorkspaceDocument
 public partial class WorkspaceJsonContext : JsonSerializerContext { }
 
 /// <summary>Credential-free, versioned workspace with immutable snapshots and bounded import.
-/// Storage adapters must atomically replace the serialized document; tokens/passwords are never accepted.</summary>
+/// Single-owner catalog; serialize access to edits. Storage adapters must atomically replace the serialized document; tokens/passwords are never accepted.</summary>
 public sealed class DeviceCatalog
 {
     public const int MaximumDevices = 10000;
@@ -52,7 +52,12 @@ public sealed class DeviceCatalog
     // Records and their private array are never mutated. A fork shares the existing
     // snapshot until its first edit; transaction rollback needs no JSON round trip.
     private DeviceCatalog(WorkspaceDocument document, bool validated) => _document = document;
-    public DeviceCatalog Fork() => new(_document, true);
+    public DeviceCatalog Fork() => new(_document, true)
+    {
+        _indices = _indices, _orderedSource = _orderedSource, _ordered = _ordered,
+        _orderedSort = _orderedSort, _orderedDescending = _orderedDescending,
+        _query = _query, _queryKey = _queryKey, _groups = _groups
+    };
     public SavedDevice? Find(Guid id)
     {
         _indices ??= _document.Devices.Select((d, i) => (d.Profile.Id, i)).ToDictionary(p => p.Id, p => p.i);
@@ -103,7 +108,9 @@ public sealed class DeviceCatalog
     public ConnectionProfile Duplicate(Guid id)
     {
         var original = Find(id)?.Profile ?? throw new KeyNotFoundException("Unknown saved device.");
-        var copy = original with { Id = Guid.NewGuid(), Name = original.Name[..Math.Min(original.Name.Length, 249)] + " (copy)", Favorite = false };
+        int length = Math.Min(original.Name.Length, 249);
+        if (length < original.Name.Length && char.IsHighSurrogate(original.Name[length - 1])) length--;
+        var copy = original with { Id = Guid.NewGuid(), Name = original.Name[..length] + " (copy)", Favorite = false };
         Upsert(copy); return copy;
     }
     public bool Remove(Guid id)
@@ -166,7 +173,7 @@ public sealed class DeviceCatalog
     {
         ArgumentNullException.ThrowIfNull(json);
         if (System.Text.Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes) throw new FormatException("Workspace exceeds the storage limit.");
-        var doc = JsonSerializer.Deserialize(json, WorkspaceJsonContext.Default.WorkspaceDocument) ?? throw new FormatException("Empty workspace.");
+        var doc = JsonSerializer.Deserialize(json.AsSpan().TrimStart('\ufeff'), WorkspaceJsonContext.Default.WorkspaceDocument) ?? throw new FormatException("Empty workspace.");
         return new(doc);
     }
     private static WorkspaceDocument Clone(WorkspaceDocument doc) => doc with { Devices = doc.Devices is null ? throw new FormatException("Missing device list.") : (SavedDevice[])doc.Devices.Clone() };

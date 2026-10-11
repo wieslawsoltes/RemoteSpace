@@ -22,6 +22,13 @@ async def validate_workspace_ui(page, output, passed):
     await action('quick.test.invalid', 'Duplicate')
     await expect(page.get_by_role('button', name='Connect to quick.test.invalid (copy)', exact=True)).to_be_attached(timeout=30000)
     passed('Device details and duplicate commands work on actual saved profiles')
+    async with page.expect_download(timeout=15000) as exported:
+        await action('quick.test.invalid', 'Export .rdp')
+    download = await exported.value
+    await download.save_as(str(output/'exported-pc.rdp'))
+    if 'full address:s:quick.test.invalid' not in (output/'exported-pc.rdp').read_text():
+        raise AssertionError('Exported RDP file does not describe the chosen saved device')
+    passed('Export command downloads an actual credential-free RDP profile')
     await command(page, 'List view')
     await action('quick.test.invalid (copy)', 'Edit')
     await edit(page, 'Friendly name', 'Build server')

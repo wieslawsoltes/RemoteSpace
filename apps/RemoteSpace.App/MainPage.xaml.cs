@@ -14,6 +14,7 @@ namespace RemoteSpace.App;
 
 public sealed partial class MainPage : Page
 {
+    private readonly IUserFileAccess _fileAccess = new SystemFileAccess();
     private DeviceCatalog _catalog = new();
     private readonly WorkspaceStore _store = new();
     private readonly List<OpenSession> _sessions = [];
@@ -31,6 +32,8 @@ public sealed partial class MainPage : Page
             _loading = true;
             try { await _textClipboard.InitializeAsync(); }
             catch (Exception e) { ShowError("Local clipboard unavailable: " + e.Message); }
+            try { await _fileAccess.InitializeAsync(); }
+            catch (Exception e) { ShowError("Local file access unavailable: " + e.Message); }
             try { _catalog = await _store.LoadAsync(); }
             catch (Exception e) { ShowError("Workspace not loaded: " + e.Message); }
             _ready = true; _loading = false; ApplyTheme(_catalog.Settings.Theme); RefreshDevices();
@@ -69,6 +72,7 @@ public sealed partial class MainPage : Page
         Grid.SetRow(DeviceCommands, narrow ? 1 : 0); Grid.SetColumn(DeviceCommands, narrow ? 0 : 1);
         Grid.SetColumnSpan(DeviceCommands, narrow ? 2 : 1); Grid.SetColumnSpan(Search, narrow ? 2 : 1);
         DeviceCommands.Margin = narrow ? new Thickness(0, 12, 0, 0) : new Thickness(0);
+        Search.Width = Math.Max(180, Math.Min(360, args.NewSize.Width - WorkspaceContent.Padding.Left - WorkspaceContent.Padding.Right - (narrow ? 0 : 292)));
         UpdateTileSize();
     }
     private void UpdateTileSize()
