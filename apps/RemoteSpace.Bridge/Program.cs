@@ -68,6 +68,8 @@ app.Map("/session", async context =>
         }
         void Control(BridgeControl message) => Queue(new(false, BridgeWire.Control(message)));
         session.DisplayCapabilitiesChanged += caps => { if (request.EnableDisplayControl) Control(new() { Type = "display", DisplayCapabilities = caps }); };
+        session.GraphicsOutputCapabilitiesChanged += caps => { if (request.EnableGraphicsOutputControl) Control(new() { Type = "graphics-capabilities", GraphicsOutputCapabilities = caps }); };
+        session.OutputEnabledChanged += enabled => { if (request.EnableGraphicsOutputControl) Control(new() { Type = "graphics-state", OutputEnabled = enabled }); };
         session.StateChanged += state => Control(new() { Type = "state", State = state });
         session.DesktopResized += size => { frames.Resize(size.Width, size.Height); Signal(); };
         session.SurfaceUpdated += update => { frames.Apply(update); Signal(); };
@@ -106,13 +108,13 @@ app.Map("/session", async context =>
         }
         async Task ReceiveLoop()
         {
-            long window = Environment.TickCount64; int inputs = 0, clipboards = 0, layouts = 0;
+            long window = Environment.TickCount64; int inputs = 0, clipboards = 0, layouts = 0, graphics = 0;
             while (!lifetime.IsCancellationRequested)
             {
                 var packet = await BridgeWire.ReceiveAsync(socket, lifetime.Token); if (packet is null) break;
                 if (packet.Binary) throw new InvalidDataException("Client binary messages are not accepted.");
                 var command = BridgeWire.ParseControl(packet.Payload);
-                if (Environment.TickCount64 - window >= 1000) { window = Environment.TickCount64; inputs = 0; clipboards = 0; layouts = 0; }
+                if (Environment.TickCount64 - window >= 1000) { window = Environment.TickCount64; inputs = 0; clipboards = 0; layouts = 0; graphics = 0; }
                 if (++inputs > 2000) throw new InvalidDataException("Input rate limit exceeded.");
                 switch (command.Type)
                 {
@@ -123,6 +125,12 @@ app.Map("/session", async context =>
                     case "display-layout":
                         if (!request.EnableDisplayControl || ++layouts > 4 || command.Monitors is null) throw new InvalidDataException("Display control is unavailable or its rate limit was exceeded.");
                         await session.RequestDisplayLayoutAsync(command.Monitors, lifetime.Token); break;
+                    case "graphics-output":
+                        if (!request.EnableGraphicsOutputControl || ++graphics > 4 || command.OutputEnabled is not { } enabled) throw new InvalidDataException("Graphics-output request is unavailable or excessive.");
+                        await session.SetOutputEnabledAsync(enabled, lifetime.Token); break;
+                    case "graphics-refresh":
+                        if (!request.EnableGraphicsOutputControl || ++graphics > 4) throw new InvalidDataException("Graphics refresh is unavailable or excessive.");
+                        await session.RequestRefreshAsync(lifetime.Token); break;
                     case "disconnect": return;
                     default: throw new InvalidDataException("Unknown client control message.");
                 }
@@ -147,7 +155,7 @@ app.Map("/session", async context =>
             socket.Abort();
         }
     }
-    catch (Exception e) when (e is OperationCanceledException or WebSocketException or IOException or ArgumentException or TimeoutException or System.Text.Json.JsonException)
+    catch (Exception e) when (e is OperationCanceledException or WebSocketException or IOException or InvalidDataException or InvalidOperationException or ArgumentException or TimeoutException or System.Text.Json.JsonException)
     { app.Logger.LogInformation("RemoteSpace session ended: {ErrorType}", e.GetType().Name); }
     finally { sessions.Release(); }
 });

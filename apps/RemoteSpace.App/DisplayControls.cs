@@ -10,6 +10,7 @@ public sealed partial class MainPage
 {
     private void AddDisplayControls(IRemoteSession session, RemoteDesktopView view, StackPanel toolbar)
     {
+        AddGraphicsOutputControls(session, view, toolbar);
         if (session is not IRemoteDisplayControl display) return;
         var menu = new MenuFlyout();
         var button = new Button { Content = "Resolution", Flyout = menu, IsEnabled = false };

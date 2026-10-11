@@ -18,6 +18,7 @@ import urllib.request
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
 from clipboard import round_trip
+from graphics_output import validate_output_controls
 
 async def run(site, output):
     if os.environ.get('RDP_TEST_HOST') != '127.0.0.1':
@@ -159,6 +160,7 @@ async def run(site, output):
                 await rendered('02-resized-desktop.png')
                 passed('Browser resolution command produces server-confirmed 1024x768 pixels')
                 await round_trip(page, origin, passed)
+                await validate_output_controls(page, metrics, output, passed)
                 if errors: raise AssertionError('Uncaught browser errors: '+'\n'.join(errors))
                 passed('No uncaught JavaScript or WASM session errors')
             except BaseException:

@@ -42,7 +42,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
             SetState(SessionState.Connecting);
             using var connect = CancellationTokenSource.CreateLinkedTokenSource(ct.Token); connect.CancelAfter(options.ConnectTimeout);
             await _socket.ConnectAsync(_endpoint, connect.Token);
-            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
+            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, EnableGraphicsOutputControl = true, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
             try { await SendAsync(request, connect.Token); }
             finally { CryptographicOperations.ZeroMemory(request); _token = null; }
             bool established = false;
@@ -63,6 +63,13 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
                         var caps = message.DisplayCapabilities;
                         if (caps is not null && (caps.MaximumMonitors is < 1 or > DisplayLayout.MaximumMonitors || caps.MaximumArea is < 1 or > DisplayLayout.MaximumArea)) throw new InvalidDataException("Invalid bridge display capabilities.");
                         DisplayCapabilities = caps; DisplayCapabilitiesChanged?.Invoke(caps); break;
+                    case "graphics-state":
+                        if (message.OutputEnabled is not { } enabled) throw new InvalidDataException("Missing graphics-output state.");
+                        OutputEnabled = enabled; OutputEnabledChanged?.Invoke(enabled);
+                        if (_requestedOutput == enabled) _outputAck?.TrySetResult(); break;
+                    case "graphics-capabilities":
+                        GraphicsOutputCapabilities = message.GraphicsOutputCapabilities;
+                        GraphicsOutputCapabilitiesChanged?.Invoke(GraphicsOutputCapabilities); break;
                     case "size":
                         if (message.Width is < 1 or > 8192 || message.Height is < 1 or > 8192 || (long)message.Width * message.Height > 16_777_216) throw new InvalidDataException("Invalid desktop dimensions.");
                         DesktopResized?.Invoke(new(message.Width, message.Height)); break;
@@ -89,7 +96,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
             SetState(SessionState.Faulted); Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, "Error", summary));
             throw new IOException(summary, e);
         }
-        finally { _socket.Abort(); _token = null; DisplayCapabilities = null; if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult(); }
+        finally { _socket.Abort(); _token = null; DisplayCapabilities = null; GraphicsOutputCapabilities = null; _outputAck?.TrySetCanceled(); if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult(); }
     }
     private async ValueTask SendAsync(byte[] data, CancellationToken ct)
     {

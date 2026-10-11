@@ -19,11 +19,12 @@ tar -xzf xorgxrdp.tar.gz
 sudo cp /etc/xrdp/startwm.sh "$work/startwm.sh"
 sudo cp /etc/pam.d/xrdp-sesman "$work/xrdp-sesman.pam"
 cd xrdp-0.10.6.1
-# Use the upstream minimal build: TLS/bitmap desktop/clipboard/display control.
+# Enable the server-side software painter: it supplies the negotiated bitmap
+# fallback for clients which advertise no primary drawing orders.
 # This job does not claim modern graphics-codec or audio interoperability.
 ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --enable-ipv6 \
     --disable-jpeg --disable-fuse --disable-mp3lame --disable-fdkaac --disable-opus \
-    --disable-rfxcodec --disable-painter --disable-pixman --disable-utmp \
+    --disable-rfxcodec --enable-painter --disable-pixman --disable-utmp \
     --without-imlib2 --without-freetype2
 make -j2
 sudo make install

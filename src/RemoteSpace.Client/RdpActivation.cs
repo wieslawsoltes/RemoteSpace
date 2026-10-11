@@ -29,7 +29,7 @@ public sealed partial class RdpSession
             switch (share.Type)
             {
                 case 1:
-                    _desktop = Activation.ParseDemand(share.Body); SetState(SessionState.Establishing);
+                    _desktop = Activation.ParseDemand(share.Body); ConfigureGraphicsOutput(share.Body); SetState(SessionState.Establishing);
                     DesktopResized?.Invoke(new(_desktop.Width, _desktop.Height));
                     await SendShareAsync(Activation.Confirm(_desktop, _user, _options!.KeyboardLayout), ct);
                     await SendShareAsync(Activation.Synchronize(_desktop.ShareId, _user, share.Source), ct);
@@ -48,7 +48,7 @@ public sealed partial class RdpSession
                         case 40:
                             SetState(SessionState.Active); Log("Session", $"Desktop active: {_desktop.Width}×{_desktop.Height}, {_desktop.BitsPerPixel}-bit bitmap updates.");
                             await SendShareAsync(Activation.Input(_desktop.ShareId, _user, new(InputKind.Synchronize, 0, 0)), ct);
-                            await SendShareAsync(Activation.Refresh(_desktop.ShareId, _user, _desktop.Width, _desktop.Height), ct); break;
+                            await RestoreGraphicsOutputAsync(ct); break;
                         case 47:
                             var e = new PacketReader(data.Body); uint error = e.U32(); e.End();
                             if (error != 0) throw new RdpProtocolException($"Server RDP error information: 0x{error:X8}."); break;

@@ -22,7 +22,9 @@ The native interoperability job retains the distribution XRDP fixture. The brows
 clipboard job builds unmodified official XRDP **0.10.6.1** and xorgxrdp **0.10.5**
 release archives, pinned by SHA-256 in `tools/install-modern-test-server.sh`.
 The external test server is not shipped or linked into RemoteSpace's RDP client.
-The minimal server build tests TLS, bitmap desktop, clipboard and display control,
+The server build enables its software painter to provide the negotiated bitmap
+fallback when primary drawing orders are not advertised. It tests TLS, bitmap
+desktop, clipboard and display control,
 not modern graphics codecs or audio.
 
 This version distinction matters: [XRDP 0.9.24's clipboard text decoder](https://github.com/neutrinolabs/xrdp/blob/v0.9.24/sesman/chansrv/clipboard.c)
@@ -56,3 +58,11 @@ Only the main-branch Uno workflow can deploy Pages, and only after build and bro
 ## Remaining validation
 
 Live Windows/RDS NLA and licensing matrix; all desktop host operating systems; sustained/multi-session load; hardware GPU throughput; network impairment/reconnection; broad IME/accessibility/localization testing; security audit, fuzzing and deployment hardening remain necessary. The [compatibility matrix](compatibility.md) lists unimplemented services separately from validation gaps.
+
+## Performance and output-control review
+
+See [performance and review](performance-and-review.md) for allocation evidence, sparse
+updates, single-buffer decoding, Skia invalidation batching and negotiated pause/refresh.
+The browser graphics-output test independently changes the remote desktop while
+suppressed, checks that no bitmap traffic arrives, resumes and verifies the changed
+background in the actual composed screenshot. This is not a mock transport test.

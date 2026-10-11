@@ -24,6 +24,9 @@ public sealed class BridgeControl
     public string? Text { get; set; }
     public RemoteInput Input { get; set; }
     public RemoteCursor? Cursor { get; set; }
+    public bool EnableGraphicsOutputControl { get; set; }
+    public bool? OutputEnabled { get; set; }
+    public GraphicsOutputCapabilities? GraphicsOutputCapabilities { get; set; }
     public bool EnableDisplayControl { get; set; }
     public DisplayCapabilities? DisplayCapabilities { get; set; }
     public DisplayMonitor[]? Monitors { get; set; }

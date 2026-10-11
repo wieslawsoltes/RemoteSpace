@@ -33,6 +33,7 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
     public int DesktopHeight => _canvas.PixelHeight;
     public long AppliedUpdates => _canvas.AppliedUpdates;
     public long PresentedFrames => _canvas.PresentedFrames;
+    public long PixelInvalidations => _canvas.PixelInvalidations;
     public string Renderer => "Uno Skia compositor (hardware acceleration depends on the host)";
     public bool FitToWindow { get => _canvas.Fit; set { _canvas.Fit = value; _canvas.MarkDirty(); } }
     public double Zoom { get => _canvas.Zoom; set { if (!double.IsFinite(value) || value is < .1 or > 4) throw new ArgumentOutOfRangeException(nameof(value)); _canvas.Zoom = value; _canvas.MarkDirty(); } }
@@ -182,6 +183,7 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
         private RemoteCursor? _cursorInfo;
         private byte[]? _resolvedCursor;
         private int _cursorX, _cursorY, _dirty;
+        private bool _pixelsChanged;
         private Viewport _viewport;
         public bool Fit { get; set; } = true;
         public double Zoom { get; set; } = 1;
@@ -189,11 +191,12 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
         public int PixelHeight { get; private set; }
         public long AppliedUpdates { get; private set; }
         public long PresentedFrames { get; private set; }
+        public long PixelInvalidations { get; private set; }
         public void MarkDirty() => Interlocked.Exchange(ref _dirty, 1);
         public void PresentIfDirty() { if (Interlocked.Exchange(ref _dirty, 0) != 0) Invalidate(); }
         public void Clear()
         {
-            lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; _resolvedCursor = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = 0; }
+            lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; _resolvedCursor = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = PixelInvalidations = 0; _viewport = default; _pixelsChanged = false; }
             MarkDirty();
         }
         public void Resize(int width, int height)
@@ -201,8 +204,9 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
             if (width is < 1 or > 8192 || height is < 1 or > 8192 || (long)width * height > 16_777_216) throw new InvalidDataException("Invalid desktop size.");
             lock (_gate)
             {
-                _bitmap?.Dispose(); _bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
-                _bitmap.Erase(SKColors.Black); PixelWidth = width; PixelHeight = height;
+                var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
+                bitmap.Erase(SKColors.Black); _bitmap?.Dispose(); _bitmap = bitmap;
+                PixelWidth = width; PixelHeight = height; _viewport = default; _pixelsChanged = false;
             }
             MarkDirty();
         }
@@ -214,9 +218,12 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
                     (long)update.X + update.Width > PixelWidth || (long)update.Y + update.Height > PixelHeight || update.Rgba.LongLength != (long)update.Width * update.Height * 4)
                     throw new InvalidDataException("Surface update exceeds the negotiated desktop.");
                 var address = _bitmap.GetPixels();
-                for (int y = 0; y < update.Height; y++) Marshal.Copy(update.Rgba, y * update.Width * 4,
-                    address + (update.Y + y) * _bitmap.RowBytes + update.X * 4, update.Width * 4);
-                _bitmap.NotifyPixelsChanged(); AppliedUpdates++;
+                if (update.X == 0 && update.Width * 4 == _bitmap.RowBytes)
+                    Marshal.Copy(update.Rgba, 0, address + update.Y * _bitmap.RowBytes, update.Rgba.Length);
+                else
+                    for (int y = 0; y < update.Height; y++) Marshal.Copy(update.Rgba, y * update.Width * 4,
+                        address + (update.Y + y) * _bitmap.RowBytes + update.X * 4, update.Width * 4);
+                _pixelsChanged = true; AppliedUpdates++;
             }
             MarkDirty();
         }
@@ -244,6 +251,11 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
                 return _viewport.Map(point.X, point.Y, PixelWidth, PixelHeight);
             }
         }
+        private void PublishPixels()
+        {
+            if (!_pixelsChanged || _bitmap is null) return;
+            _bitmap.NotifyPixelsChanged(); _pixelsChanged = false; PixelInvalidations++;
+        }
         protected override void RenderOverride(SKCanvas canvas, Size area)
         {
             canvas.Clear(new SKColor(17, 20, 26));
@@ -252,7 +264,7 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
                 if (_bitmap is null) return;
                 _viewport = Fit ? Viewport.Fit(area.Width, area.Height, PixelWidth, PixelHeight) : new Viewport((area.Width - PixelWidth * Zoom) / 2, (area.Height - PixelHeight * Zoom) / 2, PixelWidth * Zoom, PixelHeight * Zoom);
                 var rect = new SKRect((float)_viewport.X, (float)_viewport.Y, (float)(_viewport.X + _viewport.Width), (float)(_viewport.Y + _viewport.Height));
-                canvas.DrawBitmap(_bitmap, rect);
+                PublishPixels(); canvas.DrawBitmap(_bitmap, rect);
                 if (_cursor is not null && _cursorInfo is { } cursor)
                 {
                     if (_resolvedCursor is not null)
@@ -274,6 +286,7 @@ public sealed class RemoteDesktopView : ContentControl, IAsyncDisposable
             lock (_gate)
             {
                 if (_bitmap is null) throw new InvalidOperationException("No remote frame has been received.");
+                PublishPixels();
                 using var image = SKImage.FromBitmap(_bitmap); using var data = image.Encode(SKEncodedImageFormat.Png, 100); return data.ToArray();
             }
         }
