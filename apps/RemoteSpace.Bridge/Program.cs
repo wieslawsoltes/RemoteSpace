@@ -54,11 +54,11 @@ app.Map("/session", async context =>
             if (Interlocked.Add(ref queuedBytes, packet.Payload.Length) > 32 * 1024 * 1024 || !outgoing.Writer.TryWrite(packet))
             {
                 Interlocked.Add(ref queuedBytes, -packet.Payload.Length);
-                // Cancellation, rather than an exception in a session event, guarantees the receive loop can finish cleanup.
                 lifetime.Cancel();
             }
         }
         void Control(BridgeControl message) => Queue(new(false, BridgeWire.Control(message)));
+        session.DisplayCapabilitiesChanged += caps => { if (request.EnableDisplayControl) Control(new() { Type = "display", DisplayCapabilities = caps }); };
         session.StateChanged += state => Control(new() { Type = "state", State = state });
         session.DesktopResized += size => Control(new() { Type = "size", Width = size.Width, Height = size.Height });
         session.SurfaceUpdated += update => { foreach (var part in BridgeWire.Split(update)) Queue(new(true, BridgeWire.Surface(part))); };
@@ -76,13 +76,13 @@ app.Map("/session", async context =>
         }
         async Task ReceiveLoop()
         {
-            long window = Environment.TickCount64; int inputs = 0, clipboards = 0;
+            long window = Environment.TickCount64; int inputs = 0, clipboards = 0, layouts = 0;
             while (!lifetime.IsCancellationRequested)
             {
                 var packet = await BridgeWire.ReceiveAsync(socket, lifetime.Token); if (packet is null) break;
                 if (packet.Binary) throw new InvalidDataException("Client binary messages are not accepted.");
                 var command = BridgeWire.ParseControl(packet.Payload);
-                if (Environment.TickCount64 - window >= 1000) { window = Environment.TickCount64; inputs = 0; clipboards = 0; }
+                if (Environment.TickCount64 - window >= 1000) { window = Environment.TickCount64; inputs = 0; clipboards = 0; layouts = 0; }
                 if (++inputs > 2000) throw new InvalidDataException("Input rate limit exceeded.");
                 switch (command.Type)
                 {
@@ -90,6 +90,9 @@ app.Map("/session", async context =>
                     case "clipboard":
                         if (++clipboards > 4) throw new InvalidDataException("Clipboard rate limit exceeded.");
                         await session.SendClipboardAsync(command.Text ?? "", lifetime.Token); break;
+                    case "display-layout":
+                        if (!request.EnableDisplayControl || ++layouts > 4 || command.Monitors is null) throw new InvalidDataException("Display control is unavailable or its rate limit was exceeded.");
+                        await session.RequestDisplayLayoutAsync(command.Monitors, lifetime.Token); break;
                     case "disconnect": return;
                     default: throw new InvalidDataException("Unknown client control message.");
                 }

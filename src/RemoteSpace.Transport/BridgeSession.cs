@@ -5,7 +5,7 @@ using RemoteSpace.Core;
 namespace RemoteSpace.Transport;
 
 /// <summary>Browser-capable session adapter. Authentication tokens and passwords are sent once, never in the URL.</summary>
-public sealed class BridgeSession : IRemoteSession, IRemoteCursorSource
+public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
 {
     private readonly Uri _endpoint;
     private string? _token;
@@ -41,17 +41,25 @@ public sealed class BridgeSession : IRemoteSession, IRemoteCursorSource
             SetState(SessionState.Connecting);
             using var connect = CancellationTokenSource.CreateLinkedTokenSource(ct.Token); connect.CancelAfter(options.ConnectTimeout);
             await _socket.ConnectAsync(_endpoint, connect.Token);
-            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
+            byte[] request = BridgeWire.Control(new() { Type = "connect", Token = _token, Options = options, EnableDisplayControl = options.EnableDynamicResolution, UserName = credentials.UserName, Password = credentials.Password, Domain = credentials.Domain });
             try { await SendAsync(request, connect.Token); }
             finally { CryptographicOperations.ZeroMemory(request); _token = null; }
+            bool established = false;
             while (!ct.IsCancellationRequested)
             {
-                var packet = await BridgeWire.ReceiveAsync(_socket, ct.Token); if (packet is null) break;
+                var packet = await BridgeWire.ReceiveAsync(_socket, established ? ct.Token : connect.Token); if (packet is null) break;
                 if (packet.Binary) { SurfaceUpdated?.Invoke(BridgeWire.ParseSurface(packet.Payload)); continue; }
                 var message = BridgeWire.ParseControl(packet.Payload);
                 switch (message.Type)
                 {
-                    case "state": if (!Enum.IsDefined(message.State)) throw new InvalidDataException("Unknown session state."); SetState(message.State); break;
+                    case "state":
+                        if (!Enum.IsDefined(message.State)) throw new InvalidDataException("Unknown session state.");
+                        if (message.State == SessionState.Active) { established = true; connect.CancelAfter(Timeout.InfiniteTimeSpan); }
+                        SetState(message.State); break;
+                    case "display":
+                        var caps = message.DisplayCapabilities;
+                        if (caps is not null && (caps.MaximumMonitors is < 1 or > DisplayLayout.MaximumMonitors || caps.MaximumArea is < 1 or > DisplayLayout.MaximumArea)) throw new InvalidDataException("Invalid bridge display capabilities.");
+                        DisplayCapabilities = caps; DisplayCapabilitiesChanged?.Invoke(caps); break;
                     case "size":
                         if (message.Width is < 1 or > 8192 || message.Height is < 1 or > 8192 || (long)message.Width * message.Height > 16_777_216) throw new InvalidDataException("Invalid desktop dimensions.");
                         DesktopResized?.Invoke(new(message.Width, message.Height)); break;
@@ -66,7 +74,7 @@ public sealed class BridgeSession : IRemoteSession, IRemoteCursorSource
         }
         catch (Exception) when (ct.IsCancellationRequested) { }
         catch (Exception e) { SetState(SessionState.Faulted); Diagnostic?.Invoke(new(DateTimeOffset.UtcNow, "Error", e.Message)); throw; }
-        finally { _socket.Abort(); _token = null; if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult(); }
+        finally { _socket.Abort(); _token = null; DisplayCapabilities = null; if (State != SessionState.Faulted) SetState(SessionState.Disconnected); _completed.TrySetResult(); }
     }
     private async ValueTask SendAsync(byte[] data, CancellationToken ct)
     {

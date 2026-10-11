@@ -42,12 +42,15 @@ var options = new ConnectionOptions { Host = host, Security = SecurityMode.Tls, 
 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 await using var session = new RdpSession();
 var active = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var displayReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var resized = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 var pixels = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-var frame = new FrameBuffer(); long rectangles = 0;
+var frame = new FrameBuffer(); long rectangles = 0; int currentWidth = 0, currentHeight = 0;
 session.StateChanged += state => { Console.WriteLine("STATE " + state); if (state == SessionState.Active) active.TrySetResult(); };
 session.Diagnostic += d => Console.WriteLine(d.Stage + ": " + d.Message);
-session.DesktopResized += d => frame.Resize(d.Width, d.Height);
-session.SurfaceUpdated += update => { frame.Apply(update); Interlocked.Increment(ref rectangles); if (session.DecodedPixels > 100_000) pixels.TrySetResult(); };
+session.DisplayCapabilitiesChanged += caps => { if (caps is not null) displayReady.TrySetResult(); };
+session.DesktopResized += d => { frame.Resize(d.Width, d.Height); currentWidth = d.Width; currentHeight = d.Height; Console.WriteLine($"SIZE {d.Width}x{d.Height}"); };
+session.SurfaceUpdated += update => { frame.Apply(update); Interlocked.Increment(ref rectangles); if (session.DecodedPixels > 100_000) pixels.TrySetResult(); if (currentWidth == 1024 && currentHeight == 768) resized.TrySetResult(); };
 session.ClipboardReceived += text => Console.WriteLine("CLIPBOARD received " + text.Length + " characters");
 Task running = session.RunAsync(options, new SessionCredentials(user, password), deadline.Token);
 await AwaitOrFailure(active.Task); await AwaitOrFailure(pixels.Task);
@@ -63,18 +66,28 @@ foreach (ushort code in command)
     await session.SendInputAsync(new(InputKind.ScanCode, 0x8000, code), deadline.Token);
 }
 await Task.Delay(2000, deadline.Token);
-var snapshot = frame.Snapshot();
 Directory.CreateDirectory("artifacts/integration");
-await using (var file = File.Create("artifacts/integration/desktop.ppm"))
+await Capture("desktop.ppm");
+Check(rectangles > 1 && session.DecodedPixels >= 100_000, "live RDP desktop pixels decoded");
+Console.WriteLine($"INTEROP: {rectangles} rectangles; {session.DecodedPixels} decoded pixels; {session.ReceivedBytes} received bytes.");
+if (Environment.GetEnvironmentVariable("RDP_TEST_RESIZE") == "1")
 {
+    await AwaitOrFailure(displayReady.Task);
+    await session.RequestDisplayLayoutAsync([new DisplayMonitor(0, 0, 1024, 768)], deadline.Token);
+    await AwaitOrFailure(resized.Task);
+    Check(currentWidth == 1024 && currentHeight == 768, "live dynamic-resolution reactivation and new framebuffer updates");
+    await Capture("resized.ppm");
+}
+await session.DisconnectAsync(); await running;
+async Task Capture(string name)
+{
+    var snapshot = frame.Snapshot();
+    await using var file = File.Create(Path.Combine("artifacts/integration", name));
     await file.WriteAsync(Encoding.ASCII.GetBytes($"P6\n{snapshot.Width} {snapshot.Height}\n255\n"));
     byte[] rgb = new byte[snapshot.Width * snapshot.Height * 3];
     for (int src = 0, dst = 0; src < snapshot.Rgba.Length; src += 4) { rgb[dst++] = snapshot.Rgba[src]; rgb[dst++] = snapshot.Rgba[src + 1]; rgb[dst++] = snapshot.Rgba[src + 2]; }
     await file.WriteAsync(rgb);
 }
-Check(rectangles > 1 && session.DecodedPixels >= 100_000, "live RDP desktop pixels decoded");
-Console.WriteLine($"INTEROP: {rectangles} rectangles; {session.DecodedPixels} decoded pixels; {session.ReceivedBytes} received bytes.");
-await session.DisconnectAsync(); await running;
 async Task AwaitOrFailure(Task expected)
 {
     Task finished = await Task.WhenAny(expected, running).WaitAsync(deadline.Token);

@@ -1,3 +1,5 @@
+using System.Text;
+using RemoteSpace.Core;
 using RemoteSpace.Protocol;
 using RemoteSpace.Graphics;
 using RemoteSpace.Profiles;

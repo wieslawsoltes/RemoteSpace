@@ -24,17 +24,18 @@ jobs:
           dotnet run --project tests/RemoteSpace.Integration -c Release
       - name: Install isolated interoperability server
         run: bash tools/start-test-server.sh
-      - name: Connect, decode desktop, and send real keyboard input
+      - name: Connect, decode desktop, send real input and resize
         env:
           RDP_TEST_HOST: 127.0.0.1
           RDP_TEST_USER: rdptest
+          RDP_TEST_RESIZE: '1'
         run: |
           set -euo pipefail
           mkdir -p artifacts/integration
           dotnet run --project tests/RemoteSpace.Integration -c Release --no-build 2>&1 | tee artifacts/integration/client.log
           sudo test -f /home/rdptest/proof
           echo 'PASS independent server-side keyboard effect: /home/rdptest/proof'
-          python3 -c "from PIL import Image; Image.open('artifacts/integration/desktop.ppm').save('artifacts/integration/desktop.png')"
+          python3 -c "from PIL import Image; from pathlib import Path; [Image.open(p).save(p.with_suffix('.png')) for p in Path('artifacts/integration').glob('*.ppm')]"
       - name: Collect server diagnostics
         if: always()
         run: |
@@ -49,23 +50,3 @@ jobs:
         with:
           name: rdp-interoperability
           path: artifacts/integration
-  template-reference:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Inspect pinned Uno template entry points
-        run: |
-          dotnet new install Uno.Templates@6.7.30
-          dotnet new unoapp -preset blank -o /tmp/UnoReference
-          dotnet new unolib -o /tmp/UnoLibraryReference
-          find /tmp/UnoLibraryReference -name '*.csproj' -print -exec cat {} \;
-          find /tmp/UnoReference -type f \( -name '*.csproj' -o -name 'Program.cs' -o -name 'App.xaml' -o -name 'App.xaml.cs' -o -name 'index.html' \) -print -exec cat {} \;
-      - uses: actions/upload-artifact@v4
-        with:
-          name: uno-template-reference
-          path: |
-            /tmp/UnoReference
-            /tmp/UnoLibraryReference
