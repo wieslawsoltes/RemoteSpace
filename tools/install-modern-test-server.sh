@@ -23,7 +23,8 @@ cd xrdp-0.10.6.1
 # This job does not claim modern graphics-codec or audio interoperability.
 ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --enable-ipv6 \
     --disable-jpeg --disable-fuse --disable-mp3lame --disable-fdkaac --disable-opus \
-    --disable-rfxcodec --disable-painter --disable-pixman --disable-utmp
+    --disable-rfxcodec --disable-painter --disable-pixman --disable-utmp \
+    --without-imlib2 --without-freetype2
 make -j2
 sudo make install
 # Install generated version-matched config files, not the old 0.9 sesman socket settings.
