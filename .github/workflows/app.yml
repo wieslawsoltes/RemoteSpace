@@ -31,11 +31,18 @@ jobs:
         run: |
           set -euo pipefail
           dotnet publish apps/RemoteSpace.App -c Release -f net10.0-browserwasm 2>&1 | tee artifacts/uno/browser-build.log
-          site=$(find apps/RemoteSpace.App/bin/Release/net10.0-browserwasm -path '*/wwwroot/index.html' -print -quit)
-          test -n "$site"
+          site=apps/RemoteSpace.App/bin/Release/net10.0-browserwasm/publish/wwwroot
+          test -f "$site/index.html"
           mkdir -p artifacts/browser
-          cp -a "$(dirname "$site")/." artifacts/browser/
+          cp -a "$site/." artifacts/browser/
           touch artifacts/browser/.nojekyll
+      - name: Preserve compiled browser for reproducible runtime debugging
+        uses: actions/upload-artifact@v4
+        with:
+          name: uno-browser
+          path: artifacts/browser
+          include-hidden-files: true
+          if-no-files-found: error
       - name: Validate the real browser workspace
         shell: bash
         run: |
@@ -60,12 +67,6 @@ jobs:
         with:
           name: uno-build-logs
           path: artifacts/uno
-      - uses: actions/upload-artifact@v4
-        with:
-          name: uno-browser
-          path: artifacts/browser
-          include-hidden-files: true
-          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: uno-controls
