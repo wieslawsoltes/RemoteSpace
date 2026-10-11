@@ -13,8 +13,9 @@ public sealed partial class RdpSession
         {
             foreach (byte[] reply in result.Replies)
             {
-                var header = ClipboardCodec.Parse(reply);
-                Log("Clipboard", $"Sending type {header.Type}, flags {header.Flags}, {header.Data.Length} payload bytes.");
+                var header = new PacketReader(reply);
+                ushort type = header.U16(), flags = header.U16(); uint length = header.U32();
+                Log("Clipboard", $"Sending type {type}, flags {flags}, {length} payload bytes.");
                 foreach (byte[] fragment in ChannelAssembler.Fragment(reply))
                     await SendChannelAsync(_clipboardChannel, fragment, ct);
             }

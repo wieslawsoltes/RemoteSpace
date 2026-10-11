@@ -16,6 +16,25 @@ The interoperability workflow provisions a disposable loopback-only XRDP/Xorg de
 
 Do not run `tools/start-test-server.sh` on a normal workstation: it modifies system services, creates a test user and expects an ephemeral CI machine plus `GITHUB_ENV`.
 
+### Unicode fixture version
+
+The native interoperability job retains the distribution XRDP fixture. The browser
+clipboard job builds unmodified official XRDP **0.10.6.1** and xorgxrdp **0.10.5**
+release archives, pinned by SHA-256 in `tools/install-modern-test-server.sh`.
+The external test server is not shipped or linked into RemoteSpace's RDP client.
+The minimal server build tests TLS, bitmap desktop, clipboard and display control,
+not modern graphics codecs or audio.
+
+This version distinction matters: [XRDP 0.9.24's clipboard text decoder](https://github.com/neutrinolabs/xrdp/blob/v0.9.24/sesman/chansrv/clipboard.c)
+copies individual UTF-16 units to wide characters without combining surrogate pairs.
+Its `wcstombs` conversion can reject valid supplementary-plane text, including the
+emoji in our unchanged round-trip payload. See also the upstream [Unicode issue discussion](https://github.com/neutrinolabs/xrdp/issues/3625).
+The browser test retains exact multilingual and emoji assertions rather than
+silently removing unsupported characters to make the older server pass.
+Server logs and clipboard PDU type/flag/length diagnostics distinguish a peer
+conversion failure from a browser permission failure or missing channel exchange.
+Diagnostics never include clipboard contents or connection credentials.
+
 ## Actual browser application
 
 The Uno job compiles desktop and publishes WebAssembly, then packs reusable controls. Browser validation is a separate job that downloads that exact build. Playwright drives the real Uno Skia accessibility peers and the actual canvas, not a separately written HTML mock. Both workspace and session tests serve the distribution under `/RemoteSpace/`, so project-relative assets are tested rather than only hosting at the origin root. Text-entry helpers synchronize with presentation and verify each actual typed value without including credential values in failure messages; these are correctness checks, not input-latency benchmarks.

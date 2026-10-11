@@ -3,6 +3,9 @@
 set -euo pipefail
 sudo apt-get update -qq
 sudo apt-get install -y --no-install-recommends xrdp xorgxrdp xterm x11-xserver-utils xclip xinput xfonts-base python3-pil
+if [[ "${RDP_TEST_MODERN:-0}" == 1 ]]; then
+    bash "$(dirname "$0")/install-modern-test-server.sh"
+fi
 sudo useradd -m -s /bin/bash rdptest
 password="$(openssl rand -hex 16)"
 echo "::add-mask::$password"
