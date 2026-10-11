@@ -6,7 +6,6 @@ using RemoteSpace.Core;
 using RemoteSpace.Profiles;
 using RemoteSpace.Transport;
 using RemoteSpace.Workspace;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.UI.ViewManagement;
@@ -28,6 +27,8 @@ public sealed partial class MainPage : Page
         Loaded += async (_, _) =>
         {
             if (_ready) return;
+            try { await _textClipboard.InitializeAsync(); }
+            catch (Exception e) { ShowError("Local clipboard unavailable: " + e.Message); }
             try { _catalog = await _store.LoadAsync(); }
             catch (Exception e) { ShowError("Workspace not loaded: " + e.Message); }
             var settings = _catalog.Snapshot().Settings;
@@ -172,16 +173,7 @@ public sealed partial class MainPage : Page
             Button("+", () => { view.FitToWindow = false; view.Zoom = Math.Min(4, view.Zoom + .25); });
             Button("Full screen", () => { var appView = ApplicationView.GetForCurrentView(); if (appView.IsFullScreenMode) appView.ExitFullScreenMode(); else appView.TryEnterFullScreenMode(); });
             Button("Ctrl+Alt+Del", () => view.SendSecureAttention());
-            var paste = new Button { Content = "Send clipboard", IsEnabled = profile.RedirectClipboard }; paste.Click += async (_, _) =>
-            {
-                try { var data = Clipboard.GetContent(); if (data.Contains(StandardDataFormats.Text)) await session.SendClipboardAsync(await data.GetTextAsync()); }
-                catch (Exception e) { ShowError(e.Message); }
-            }; toolbar.Children.Add(paste);
-            var copy = new Button { Content = "Copy remote text", IsEnabled = profile.RedirectClipboard }; copy.Click += (_, _) =>
-            {
-                try { var data = new DataPackage(); data.SetText(opened.RemoteClipboard); Clipboard.SetContent(data); }
-                catch (Exception e) { ShowError(e.Message); }
-            }; toolbar.Children.Add(copy);
+            AddClipboardCommands(toolbar, opened);
             var capture = new Button { Content = "Capture" }; capture.Click += async (_, _) =>
             {
                 try
@@ -274,7 +266,7 @@ public sealed partial class MainPage : Page
         public TabViewItem Tab { get; } = tab;
         public CancellationTokenSource Stop { get; } = new();
         public Task Running { get; set; } = Task.CompletedTask;
-        public string RemoteClipboard { get; set; } = "";
+        public string? RemoteClipboard { get; set; }
         public bool RecordedActive { get; set; }
         public bool Closing { get; set; }
     }
