@@ -4,7 +4,7 @@ import json
 import re
 import uuid
 from playwright.async_api import expect
-from driver import boot, command, edit, navigate
+from driver import boot, command, edit, navigate, focus_command
 
 async def validate_workspace_ui(page, output, passed):
     async def action(name, item):
@@ -12,7 +12,7 @@ async def validate_workspace_ui(page, output, passed):
         await command(page, 'Options for ' + name)
         target = page.get_by_role('menuitem', name=item, exact=True)
         await expect(target).to_be_visible()
-        await target.focus()
+        await focus_command(page, target)
         # This command can remove its own semantic node on keydown. A locator
         # retry risks replaying the command; keep one real keydown/keyup sequence.
         await page.keyboard.press('Enter', delay=80)
@@ -45,7 +45,7 @@ async def validate_workspace_ui(page, output, passed):
     # newly opened editor must not consume its launching gesture as Save.
     await command(page, 'Options for quick.test.invalid (copy)')
     edit_item = page.get_by_role('menuitem', name='Edit', exact=True)
-    await expect(edit_item).to_be_visible(); await edit_item.focus()
+    await focus_command(page, edit_item)
     await page.keyboard.down('Enter')
     await page.wait_for_timeout(240)
     await page.keyboard.up('Enter')

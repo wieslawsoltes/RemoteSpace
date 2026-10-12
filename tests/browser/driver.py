@@ -51,20 +51,31 @@ SESSION_MENUS = {
     'Top left': 'Display settings', 'Bottom right': 'Display settings', 'Fit to window': 'Display settings'
 }
 
+async def focus_command(page, target):
+    # Popup close/open and repeater recycling can reassign native focus after a
+    # semantic peer appears. Require usable layout, let the current transition
+    # settle, then focus the real control before dispatching one physical key.
+    await expect(target).to_be_visible(timeout=30000)
+    await expect(target).to_be_enabled(timeout=10000)
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await target.focus()
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+
 async def command(page, name):
     if name in SESSION_MENUS:
         group = page.get_by_role('button', name=SESSION_MENUS[name], exact=True)
         await expect(group).to_be_visible(timeout=30000)
-        await group.press('Enter')
+        await focus_command(page, group)
+        await page.keyboard.press('Enter')
         item = page.get_by_role('menuitem', name=name, exact=True)
         await expect(item).to_be_enabled(timeout=10000)
-        await item.focus()
+        await focus_command(page, item)
         await page.keyboard.press('Enter')
         await expect(page.get_by_role('menuitem')).to_have_count(0)
         return
     button = page.get_by_role('button', name=name, exact=True)
-    await expect(button).to_be_attached(timeout=30000)
-    await button.press('Enter')
+    await focus_command(page, button)
+    await page.keyboard.press('Enter')
 
 async def edit(page, label, value):
     # Do not fill() the semantic HTML proxy: it bypasses Uno's native selection.
