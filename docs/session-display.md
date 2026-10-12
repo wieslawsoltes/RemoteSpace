@@ -104,3 +104,10 @@ artifact, so a failure in one does not hide the other suite's diagnostics. Pages
 deployment depends on both jobs as well as the build; neither runtime gate is
 bypassed. The workspace regression holds both opening and Save keys through
 multiple frames and requires no leftover or reopened menu after saving.
+
+Menu-opening buttons use the same activation-release boundary before transferring
+focus into a flyout. Device flyouts are hidden when their owning card unloads;
+this does not change the tile/row design or implement the excluded compact-row
+and captured-profile-identity follow-up. The browser driver waits for the real
+input or its expander to appear after deferred dialog creation before deciding
+whether to expand. It still uses one real keyboard gesture and checks the result.

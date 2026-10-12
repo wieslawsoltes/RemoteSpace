@@ -35,17 +35,22 @@ public sealed partial class SessionCommandBar : UserControl
     }
     public Button AddMenu(string name, string glyph, Func<MenuFlyout> build)
     {
-        var button = MakeButton(name, glyph);
-        button.Click += (_, _) =>
+        var button = MakeButton(name, glyph); bool opening = false;
+        button.Click += async (_, _) =>
         {
+            if (opening) return;
+            opening = true;
             try
             {
+                await CommandActivation.WaitForReleaseAsync(this);
                 foreach (var previous in _menus.ToArray()) previous.Hide();
                 var menu = build(); _menus.Add(menu);
                 menu.Closed += (_, _) => _menus.Remove(menu);
                 menu.ShowAt(button);
             }
+            catch (OperationCanceledException) when (!IsLoaded) { }
             catch (Exception e) { CommandFailed?.Invoke(e.Message); }
+            finally { opening = false; }
         };
         return button;
     }

@@ -95,12 +95,21 @@ async def edit(page, label, value):
             await asyncio.sleep(.02)
     stage = 'resolve input'
     try:
+        expansion = page.locator('button[xamlautomationid="ExpanderToggleButton"]')
+        # Opening is intentionally deferred until its triggering key is released.
+        # Wait for the real field OR expansion control to exist before deciding
+        # whether the user needs to expand the additional settings.
+        until = time.monotonic() + 30
+        while not await box.count() and not await expansion.count():
+            if time.monotonic() >= until:
+                raise AssertionError('The requested input or its expander did not appear')
+            await asyncio.sleep(.02)
         bounds = await box.bounding_box() if await box.count() else None
         if not bounds or bounds["width"] <= 0 or bounds["height"] <= 0:
-            expansion = page.locator('button[xamlautomationid="ExpanderToggleButton"]')
             if await expansion.count() and await expansion.get_attribute('aria-pressed') != 'true':
                 stage = 'expand additional settings'
-                await expansion.press('Space')
+                await focus_command(page, expansion)
+                await page.keyboard.press('Space')
                 await expect(expansion).to_have_attribute('aria-pressed', 'true')
         # A semantic peer is not usable until it has positive layout bounds.
         stage = 'wait for input layout'
