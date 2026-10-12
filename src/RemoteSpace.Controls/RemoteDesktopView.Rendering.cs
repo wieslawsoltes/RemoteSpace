@@ -23,7 +23,7 @@ public sealed partial class RemoteDesktopView
         private RemoteCursor? _cursorInfo;
         private byte[]? _resolvedCursor;
         private int _cursorX, _cursorY;
-        private double _offsetX, _offsetY;
+        private double _offsetX, _offsetY, _presentedWidth, _presentedHeight;
         public event Action? FrameRequested;
         private bool _pixelsChanged;
         private Viewport _viewport;
@@ -109,8 +109,7 @@ public sealed partial class RemoteDesktopView
         {
             lock (_gate)
             {
-                if (clamp && _viewport.Width > 0 && _viewport.Height > 0) point = new(Math.Clamp(point.X, _viewport.X, _viewport.X + _viewport.Width - .001), Math.Clamp(point.Y, _viewport.Y, _viewport.Y + _viewport.Height - .001));
-                return _viewport.Map(point.X, point.Y, PixelWidth, PixelHeight);
+                return _viewport.MapVisible(point.X, point.Y, PixelWidth, PixelHeight, _presentedWidth, _presentedHeight, clamp);
             }
         }
         private void PublishPixels()
@@ -124,6 +123,7 @@ public sealed partial class RemoteDesktopView
             lock (_gate)
             {
                 if (_bitmap is null) return;
+                _presentedWidth = area.Width; _presentedHeight = area.Height;
                 _viewport = DesktopViewportLayout.Calculate(area.Width, area.Height, PixelWidth, PixelHeight, Fit, Zoom, _offsetX, _offsetY, 0).Image;
                 var rect = new SKRect((float)_viewport.X, (float)_viewport.Y, (float)(_viewport.X + _viewport.Width), (float)(_viewport.Y + _viewport.Height));
                 PublishPixels(); canvas.DrawBitmap(_bitmap, rect);

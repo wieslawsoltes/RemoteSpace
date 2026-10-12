@@ -3,6 +3,8 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
 using RemoteSpace.Graphics;
 
 namespace RemoteSpace.Controls;
@@ -12,11 +14,12 @@ public sealed partial class RemoteDesktopView
     private readonly PresentationGate _presentation = new();
     private long _presentationTicket;
     private bool _loaded, _presentationActive = true;
-    private bool _fit = true, _updatingViewport;
+    private bool _fit = true, _updatingViewport, _lastFit;
+    private double _lastZoom;
     private double _zoom = 1, _offsetX, _offsetY;
     private DesktopViewportLayout _viewLayout;
-    private readonly ScrollBar _horizontal = new() { Orientation = Orientation.Horizontal, Height = 14, Minimum = 0, SmallChange = 32, Visibility = Visibility.Collapsed };
-    private readonly ScrollBar _vertical = new() { Orientation = Orientation.Vertical, Width = 14, Minimum = 0, SmallChange = 32, Visibility = Visibility.Collapsed };
+    private readonly ScrollBar _horizontal = new() { Orientation = Orientation.Horizontal, Height = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, Visibility = Visibility.Collapsed };
+    private readonly ScrollBar _vertical = new() { Orientation = Orientation.Vertical, Width = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, Visibility = Visibility.Collapsed };
     public event Action? ViewChanged;
     public DesktopViewportLayout ViewLayout => _viewLayout;
     public long ScheduledPresentations { get; private set; }
@@ -41,6 +44,8 @@ public sealed partial class RemoteDesktopView
         AutomationProperties.SetName(_vertical, "Vertical desktop position");
         _horizontal.ValueChanged += (_, _) => { if (!_updatingViewport) PanTo(_horizontal.Value, _offsetY); };
         _vertical.ValueChanged += (_, _) => { if (!_updatingViewport) PanTo(_offsetX, _vertical.Value); };
+        _horizontal.KeyDown += (_, e) => HandleScrollKey(_horizontal, e);
+        _vertical.KeyDown += (_, e) => HandleScrollKey(_vertical, e);
         Content = root;
     }
     public void PanTo(double x, double y)
@@ -69,7 +74,7 @@ public sealed partial class RemoteDesktopView
         if (_disposed || _updatingViewport) return;
         var size = _canvas.SizeSnapshot();
         var layout = DesktopViewportLayout.Calculate(Math.Max(0, ActualWidth), Math.Max(0, ActualHeight), size.Width, size.Height, _fit, _zoom, _offsetX, _offsetY);
-        bool changed = layout != _viewLayout;
+        bool changed = layout != _viewLayout || _fit != _lastFit || _zoom != _lastZoom;
         _updatingViewport = true;
         try
         {
@@ -80,10 +85,32 @@ public sealed partial class RemoteDesktopView
             _horizontal.ViewportSize = _horizontal.LargeChange = layout.Width / _zoom;
             _vertical.ViewportSize = _vertical.LargeChange = layout.Height / _zoom;
             _horizontal.Value = _offsetX; _vertical.Value = _offsetY;
-            _canvas.ConfigureViewport(_fit, _zoom, _offsetX, _offsetY);
+            if (changed)
+            {
+                _lastFit = _fit; _lastZoom = _zoom;
+                _canvas.ConfigureViewport(_fit, _zoom, _offsetX, _offsetY);
+            }
         }
         finally { _updatingViewport = false; }
         if (changed) ViewChanged?.Invoke();
+    }
+    private static void HandleScrollKey(ScrollBar bar, KeyRoutedEventArgs e)
+    {
+        double target;
+        switch (e.Key)
+        {
+            case VirtualKey.Home: target = bar.Minimum; break;
+            case VirtualKey.End: target = bar.Maximum; break;
+            case VirtualKey.PageUp: target = bar.Value - bar.LargeChange; break;
+            case VirtualKey.PageDown: target = bar.Value + bar.LargeChange; break;
+            case VirtualKey.Left when bar.Orientation == Orientation.Horizontal:
+            case VirtualKey.Up when bar.Orientation == Orientation.Vertical: target = bar.Value - bar.SmallChange; break;
+            case VirtualKey.Right when bar.Orientation == Orientation.Horizontal:
+            case VirtualKey.Down when bar.Orientation == Orientation.Vertical: target = bar.Value + bar.SmallChange; break;
+            default: return;
+        }
+        e.Handled = true;
+        bar.Value = Math.Clamp(target, bar.Minimum, bar.Maximum);
     }
     private bool IsScrollBarInput(object source)
     {

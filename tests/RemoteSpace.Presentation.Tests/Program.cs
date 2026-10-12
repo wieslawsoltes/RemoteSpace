@@ -48,6 +48,13 @@ foreach (double invalid in new[] { double.NaN, double.PositiveInfinity, double.N
 Reject(() => DesktopViewportLayout.Calculate(800, 600, 8192, 8192, false), "desktop allocation policy preserved");
 Reject(() => DesktopViewportLayout.Calculate(800, 600, 1280, 720, false, zoom: 0), "zero zoom rejected");
 Check(new Viewport(0,0,1,1).Map(.5,.5,0,1) is null, "invalid desktop dimensions cannot overflow input mapping");
+var panned = new Viewport(-600, -300, 2560, 1440);
+Check(panned.MapVisible(-1, 10, 1280, 720, 800, 600) is null, "uncaptured pointer outside viewport is rejected even if image extends past it");
+Check(panned.MapVisible(-100, -100, 1280, 720, 800, 600, true) == ((ushort)300, (ushort)150), "captured drag clamps to visible top-left rather than off-screen image origin");
+Check(panned.MapVisible(10000, 10000, 1280, 720, 800, 600, true) == ((ushort)699, (ushort)449), "captured drag clamps to visible bottom-right rather than desktop limit");
+Check(small.Image.MapVisible(-100, -100, 200, 200, 800, 600, true) == ((ushort)0, (ushort)0), "captured letterbox drag clamps to image edge");
+Check(panned.MapVisible(double.NaN, 0, 1280, 720, 800, 600, true) is null, "captured nonfinite pointer rejected before clamping");
+Check(panned.MapVisible(1, 1, 1280, 720, 0, 600, true) is null, "unpainted viewport cannot forward input");
 var random = new Random(423);
 for (int i = 0; i < 200; i++)
 {
