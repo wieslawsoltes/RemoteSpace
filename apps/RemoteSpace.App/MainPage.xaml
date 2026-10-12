@@ -1,56 +1,88 @@
 <Page x:Class="RemoteSpace.App.MainPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="using:RemoteSpace.Controls" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-  <Grid RowDefinitions="Auto,*,Auto">
-    <Grid Padding="20,12" ColumnDefinitions="Auto,*,Auto">
-      <FontIcon Glyph="&#xE8AF;" FontSize="20" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-      <TextBlock Grid.Column="1" Text="RemoteSpace" Margin="12,0" VerticalAlignment="Center" FontWeight="SemiBold" />
-      <TextBlock Grid.Column="2" Text="Independent RDP client · Preview" Opacity="0.6" VerticalAlignment="Center" />
+  <Page.Resources>
+    <DataTemplate x:Key="DeviceTileContent"><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate>
+    <DataTemplate x:Key="DeviceRowContent"><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate>
+  </Page.Resources>
+  <Grid RowDefinitions="40,*,Auto">
+    <Grid Padding="18,0,14,0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+      <FontIcon Glyph="&#xE8AF;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+      <TextBlock Grid.Column="1" Text="RemoteSpace" FontSize="12" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="2" Text="Local workspace" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+      <Button Grid.Column="3" AutomationProperties.Name="About RemoteSpace" ToolTipService.ToolTip="About RemoteSpace" Background="Transparent" BorderThickness="0" Padding="8" Click="AboutClicked"><FontIcon Glyph="&#xE897;" FontSize="16" /></Button>
     </Grid>
-    <NavigationView x:Name="Navigation" Grid.Row="1" PaneDisplayMode="Left" OpenPaneLength="220" IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="True" SelectionChanged="NavigationChanged">
+    <NavigationView x:Name="Navigation" Grid.Row="1" PaneDisplayMode="Left" OpenPaneLength="104" CompactPaneLength="104" IsPaneOpen="True" IsSettingsVisible="False" IsBackButtonVisible="Collapsed" IsPaneToggleButtonVisible="False" SelectionChanged="NavigationChanged" ItemInvoked="NavigationInvoked">
       <NavigationView.MenuItems>
-        <NavigationViewItem Content="Devices" Tag="devices" Icon="AllApps" IsSelected="True" />
-        <NavigationViewItem Content="Favorites" Tag="favorites" Icon="Favorite" />
-        <NavigationViewItem Content="Active sessions" Tag="sessions" Icon="Remote" />
-        <NavigationViewItem Content="Apps" Tag="apps" Icon="Library" />
+        <NavigationViewItem Tag="favorites" AutomationProperties.Name="Favorites" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE734;" FontSize="19" /><TextBlock Text="Favorites" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
+        <NavigationViewItem Tag="devices" IsSelected="True" AutomationProperties.Name="Devices" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE7F4;" FontSize="19" /><TextBlock Text="Devices" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
+        <NavigationViewItem Tag="apps" AutomationProperties.Name="Apps" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE8F1;" FontSize="19" /><TextBlock Text="Apps" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
+        <NavigationViewItem Tag="sessions" AutomationProperties.Name="Active sessions" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE8A7;" FontSize="19" /><TextBlock x:Name="SessionCount" Text="Sessions" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
+        <NavigationViewItemSeparator />
+        <NavigationViewItem Tag="add" SelectsOnInvoked="False" AutomationProperties.Name="Add a PC" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE710;" FontSize="19" /><TextBlock Text="Add" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
       </NavigationView.MenuItems>
-      <Grid Padding="28,20,28,16" RowDefinitions="Auto,Auto,*">
-        <TextBlock x:Name="Heading" Text="Devices" FontSize="28" FontWeight="SemiBold" />
-        <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" Margin="0,16,0,12" />
-        <Grid Grid.Row="2">
-          <Grid x:Name="DevicePanel" RowDefinitions="Auto,Auto,*">
-            <Grid Margin="0,20,0,16" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
-              <TextBox x:Name="Search" PlaceholderText="Search devices" AutomationProperties.Name="Search devices" TextChanged="SearchChanged" MaxWidth="440" HorizontalAlignment="Left" MinWidth="220" />
-              <Button Grid.Column="1" Content="Import .rdp" Click="ImportRdp" />
-              <Button Grid.Column="2" Content="＋ Add PC" Click="AddPc" Style="{StaticResource AccentButtonStyle}" />
+      <NavigationView.FooterMenuItems>
+        <NavigationViewItem Tag="settings" AutomationProperties.Name="Settings" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE713;" FontSize="19" /><TextBlock Text="Settings" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
+      </NavigationView.FooterMenuItems>
+      <Border CornerRadius="8,0,0,0" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,1,0,0">
+        <Grid x:Name="WorkspaceContent" Padding="28,24,28,12" RowDefinitions="Auto,Auto,*" SizeChanged="WorkspaceSizeChanged">
+          <TextBlock x:Name="Heading" Text="Devices" FontSize="28" FontWeight="SemiBold" />
+          <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" Margin="0,12,0,8" />
+          <Grid Grid.Row="2">
+            <Grid x:Name="DevicePanel" RowDefinitions="Auto,Auto,*">
+              <Grid x:Name="DeviceToolbar" Margin="0,24,0,16" ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto">
+                <TextBox x:Name="Search" PlaceholderText="Search devices" AutomationProperties.Name="Search devices" TextChanged="SearchChanged" MaxWidth="360" HorizontalAlignment="Left" Width="360" />
+                <StackPanel x:Name="DeviceCommands" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                  <Button AutomationProperties.Name="Refresh devices" ToolTipService.ToolTip="Reload saved devices" Click="ReloadDevices"><FontIcon Glyph="&#xE72C;" FontSize="16" /></Button>
+                  <Button Content="Import .rdp" Click="ImportRdp" />
+                  <Button Content="Add PC" AutomationProperties.Name="Add PC" Click="AddPc" Style="{StaticResource AccentButtonStyle}" />
+                </StackPanel>
+              </Grid>
+              <Grid Grid.Row="1" RowDefinitions="Auto,Auto" Margin="0,0,0,16">
+                <TextBlock x:Name="DeviceCount" Text="Saved PCs" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
+                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" HorizontalScrollMode="Enabled" VerticalScrollBarVisibility="Disabled">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <ComboBox x:Name="Groups" AutomationProperties.Name="Filter by group" DisplayMemberPath="Label" MinWidth="150" SelectionChanged="GroupChanged" />
+                    <ComboBox x:Name="Sort" AutomationProperties.Name="Sort devices" SelectedIndex="0" SelectionChanged="SortChanged" MinWidth="150"><ComboBoxItem Content="Name" /><ComboBoxItem Content="Group" /><ComboBoxItem Content="Recently used" /></ComboBox>
+                    <Button x:Name="SortDirection" AutomationProperties.Name="Reverse sort order" ToolTipService.ToolTip="Reverse sort order" Click="ReverseSort"><FontIcon Glyph="&#xE8CB;" FontSize="16" /></Button>
+                    <ToggleButton x:Name="GridMode" AutomationProperties.Name="Grid view" ToolTipService.ToolTip="Grid view" IsChecked="True" Click="ShowGrid"><FontIcon Glyph="&#xF0E2;" FontSize="16" /></ToggleButton>
+                    <ToggleButton x:Name="ListMode" AutomationProperties.Name="List view" ToolTipService.ToolTip="List view" Click="ShowList"><FontIcon Glyph="&#xE8FD;" FontSize="16" /></ToggleButton>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+              <Grid Grid.Row="2">
+                <ScrollViewer x:Name="DeviceGridScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                  <ItemsRepeater x:Name="Devices" ElementPrepared="DevicePrepared" ElementClearing="DeviceClearing" HorizontalCacheLength="0" VerticalCacheLength="1">
+                    <ItemsRepeater.Layout><UniformGridLayout Orientation="Horizontal" MinItemWidth="300" MinItemHeight="268" MinColumnSpacing="16" MinRowSpacing="16" ItemsJustification="Start" ItemsStretch="None" /></ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:RecyclingContentHost ViewTemplate="{StaticResource DeviceTileContent}" /></DataTemplate></ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater>
+                </ScrollViewer>
+                <ScrollViewer x:Name="DeviceListScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled">
+                  <ItemsRepeater x:Name="DeviceList" ElementPrepared="DevicePrepared" ElementClearing="DeviceClearing" HorizontalCacheLength="0" VerticalCacheLength="1">
+                    <ItemsRepeater.Layout><StackLayout Orientation="Vertical" Spacing="8" /></ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate><DataTemplate><controls:RecyclingContentHost ViewTemplate="{StaticResource DeviceRowContent}" /></DataTemplate></ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater>
+                </ScrollViewer>
+                <StackPanel x:Name="Empty" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" MaxWidth="440" Margin="0,12">
+                  <FontIcon x:Name="EmptyIcon" Glyph="&#xE7F4;" FontSize="60" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                  <TextBlock x:Name="EmptyTitle" Text="Add a remote PC" FontSize="22" HorizontalAlignment="Center" FontWeight="SemiBold" TextWrapping="Wrap" TextAlignment="Center" />
+                  <TextBlock x:Name="EmptyDescription" Text="Connect to your PCs from one place. Add a PC or import an .rdp file to get started." TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                  <Button x:Name="FirstPc" Content="Choose a resource to add" AutomationProperties.Name="Add your first PC" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Center" Click="AddPc" />
+                  <Button x:Name="ClearFilters" Content="Clear filters" Visibility="Collapsed" HorizontalAlignment="Center" Click="ResetFilters" />
+                  <Button x:Name="GoDevices" Content="Go to devices" Visibility="Collapsed" HorizontalAlignment="Center" Click="GoToDevices" />
+                </StackPanel>
+              </Grid>
             </Grid>
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" Margin="0,0,0,16">
-              <TextBlock x:Name="DeviceCount" Text="Saved PCs" VerticalAlignment="Center" />
-              <ComboBox x:Name="Sort" AutomationProperties.Name="Sort devices" SelectedIndex="0" SelectionChanged="SortChanged"><ComboBoxItem Content="Name" /><ComboBoxItem Content="Group" /><ComboBoxItem Content="Recently used" /></ComboBox>
-              <ToggleSwitch x:Name="ListMode" Header="List view" Toggled="ListModeChanged" />
+            <TabView VerticalAlignment="Stretch" HorizontalAlignment="Stretch" x:Name="Sessions" Visibility="Collapsed" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
+            <StackPanel x:Name="SessionsEmpty" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16"><FontIcon Glyph="&#xE8A7;" FontSize="56" /><TextBlock Text="No active sessions" FontSize="22" /><Button Content="Browse devices" HorizontalAlignment="Center" Click="GoToDevices" /></StackPanel>
+            <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed"><StackPanel x:Name="SettingsBody" Spacing="16" MaxWidth="720" HorizontalAlignment="Stretch" /></ScrollViewer>
+            <StackPanel x:Name="AppsPanel" Visibility="Collapsed" Spacing="16" MaxWidth="650" HorizontalAlignment="Left" Margin="0,24,0,0">
+              <FontIcon Glyph="&#xE8F1;" FontSize="48" HorizontalAlignment="Left" />
+              <TextBlock Text="Remote apps and cloud workspaces" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <TextBlock Text="RemoteApp, Windows 365, Azure Virtual Desktop, and Microsoft account workspace discovery are not implemented in this preview. Saved PCs are local connections, not cloud subscriptions." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
-            <Grid Grid.Row="2">
-              <GridView x:Name="Devices" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch">
-                <GridView.ItemTemplate><DataTemplate><controls:DeviceCard Profile="{Binding Profile}" ActionRequested="DeviceAction" Margin="0,0,12,12" /></DataTemplate></GridView.ItemTemplate>
-              </GridView>
-              <ListView x:Name="DeviceList" Visibility="Collapsed" SelectionMode="None" IsItemClickEnabled="True" ItemClick="DeviceListClicked">
-                <ListView.ItemTemplate><DataTemplate><Grid Padding="12" ColumnDefinitions="*,*,Auto" ColumnSpacing="20"><TextBlock Text="{Binding Profile.Name}" /><TextBlock Grid.Column="1" Text="{Binding Profile.Host}" Opacity="0.7" /><TextBlock Grid.Column="2" Text="Connect  →" /></Grid></DataTemplate></ListView.ItemTemplate>
-              </ListView>
-              <StackPanel x:Name="Empty" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" MaxWidth="480">
-                <FontIcon Glyph="&#xE7F4;" FontSize="72" Foreground="{ThemeResource AccentFillColorDefaultBrush}" />
-                <TextBlock Text="Your PCs, in one place" FontSize="22" HorizontalAlignment="Center" FontWeight="SemiBold" />
-                <TextBlock Text="Add a PC or import an .rdp file to get started. Connections use your own authorized remote desktop hosts." TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7" />
-                <Button Content="Add your first PC" HorizontalAlignment="Center" Click="AddPc" />
-              </StackPanel>
-            </Grid>
           </Grid>
-          <TabView VerticalAlignment="Stretch" HorizontalAlignment="Stretch" x:Name="Sessions" Visibility="Collapsed" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
-          <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed"><StackPanel x:Name="SettingsBody" Spacing="16" MaxWidth="720" HorizontalAlignment="Left" /></ScrollViewer>
-          <StackPanel x:Name="AppsPanel" Visibility="Collapsed" Spacing="16" MaxWidth="650" HorizontalAlignment="Left" Margin="0,24,0,0">
-            <TextBlock Text="Remote apps and cloud workspaces" FontSize="20" FontWeight="SemiBold" />
-            <TextBlock Text="RemoteApp, Windows 365, Azure Virtual Desktop, and Microsoft account workspace discovery are not implemented in this preview. Adding a local PC does not subscribe to these services." TextWrapping="Wrap" />
-          </StackPanel>
         </Grid>
-      </Grid>
+      </Border>
     </NavigationView>
-    <TextBlock x:Name="Status" Grid.Row="2" Padding="20,8" Text="Loading saved devices…" FontSize="12" Opacity="0.7" />
+    <TextBlock x:Name="Status" Grid.Row="2" Padding="16,6" Text="Loading saved devices…" FontSize="11" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
   </Grid>
 </Page>

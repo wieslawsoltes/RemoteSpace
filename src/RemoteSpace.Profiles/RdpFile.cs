@@ -81,9 +81,12 @@ public static class RdpFile
         profile.ToOptions().Validate();
         return new(profile, warnings);
     }
-    public static (string Host, int Port) ParseAddress(string address)
+    public static (string Host, int Port) ParseAddress(string address) => ParseAddressWithDefaultPort(address, 3389);
+    public static (string Host, int Port) ParseAddressWithDefaultPort(string address, int defaultPort)
     {
-        string host = address.Trim(); int port = 3389;
+        ArgumentNullException.ThrowIfNull(address);
+        if (defaultPort is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(defaultPort));
+        string host = address.Trim(); int port = defaultPort;
         if (host.StartsWith('['))
         {
             int close = host.IndexOf(']');

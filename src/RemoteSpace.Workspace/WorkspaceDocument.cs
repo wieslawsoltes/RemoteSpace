@@ -11,6 +11,7 @@ public sealed record WorkspaceSettings
     public WorkspaceTheme Theme { get; init; }
     public ProfileSort Sort { get; init; }
     public bool ListView { get; init; }
+    public bool SortDescending { get; init; }
     public string BridgeEndpoint { get; init; } = "";
 }
 public sealed record SavedDevice(ConnectionProfile Profile, DateTimeOffset? LastConnected = null);
@@ -26,7 +27,7 @@ public sealed record WorkspaceDocument
 public partial class WorkspaceJsonContext : JsonSerializerContext { }
 
 /// <summary>Credential-free, versioned workspace with immutable snapshots and bounded import.
-/// Storage adapters must atomically replace the serialized document; tokens/passwords are never accepted.</summary>
+/// Single-owner catalog; serialize access to edits. Storage adapters must atomically replace the serialized document; tokens/passwords are never accepted.</summary>
 public sealed class DeviceCatalog
 {
     public const int MaximumDevices = 10000;
@@ -36,43 +37,138 @@ public sealed class DeviceCatalog
     {
         _document = Clone(document ?? new()); Validate(_document);
     }
+    private Dictionary<Guid, int>? _indices;
+    private SavedDevice[]? _orderedSource;
+    private IReadOnlyList<SavedDevice>? _ordered, _query;
+    private ProfileSort _orderedSort;
+    private bool _orderedDescending;
+    private (string Search, bool Favorites, string? Group) _queryKey;
+    private IReadOnlyList<string>? _groups;
+    public int LastQueryCandidateCount { get; private set; }
+    public int Count => _document.Devices.Length;
+    public long Revision => _document.Revision;
+    public WorkspaceSettings Settings => _document.Settings;
     public WorkspaceDocument Snapshot() => Clone(_document);
+
+    // Records and their private array are never mutated. A fork shares the existing
+    // snapshot until its first edit; transaction rollback needs no JSON round trip.
+    private DeviceCatalog(WorkspaceDocument document, bool validated) => _document = document;
+    public DeviceCatalog Fork() => new(_document, true)
+    {
+        _indices = _indices, _orderedSource = _orderedSource, _ordered = _ordered,
+        _orderedSort = _orderedSort, _orderedDescending = _orderedDescending,
+        _query = _query, _queryKey = _queryKey, _groups = _groups, LastQueryCandidateCount = LastQueryCandidateCount
+    };
+    public SavedDevice? Find(Guid id)
+    {
+        _indices ??= _document.Devices.Select((d, i) => (d.Profile.Id, i)).ToDictionary(p => p.Id, p => p.i);
+        return _indices.TryGetValue(id, out int index) ? _document.Devices[index] : null;
+    }
+    private void Commit(SavedDevice[] devices)
+    {
+        _document = _document with { Devices = devices, Revision = checked(_document.Revision + 1) };
+        _indices = null; _groups = null; _orderedSource = null; _ordered = _query = null;
+    }
     public void Upsert(ConnectionProfile profile)
     {
         ValidateProfile(profile);
-        var devices = _document.Devices.ToList(); int index = devices.FindIndex(d => d.Profile.Id == profile.Id);
-        if (index >= 0) devices[index] = devices[index] with { Profile = profile };
-        else { if (devices.Count >= MaximumDevices) throw new InvalidOperationException("Device limit reached."); devices.Add(new(profile)); }
-        _document = _document with { Devices = devices.ToArray(), Revision = checked(_document.Revision + 1) };
+        var previous = Find(profile.Id);
+        if (previous?.Profile == profile) return;
+        if (previous is null && Count >= MaximumDevices) throw new InvalidOperationException("Device limit reached.");
+        var devices = new SavedDevice[Count + (previous is null ? 1 : 0)];
+        _document.Devices.CopyTo(devices, 0);
+        if (previous is null) devices[^1] = new(profile);
+        else devices[_indices![profile.Id]] = previous with { Profile = profile };
+        Commit(devices);
+    }
+    /// <summary>Validate and merge one bounded import atomically in O(n + m), preserving
+    /// existing recency. Duplicate input IDs are rejected; no partial import is committed.</summary>
+    public void UpsertRange(IEnumerable<ConnectionProfile> profiles)
+    {
+        ArgumentNullException.ThrowIfNull(profiles);
+        var devices = _document.Devices.ToList();
+        var indices = devices.Select((d, i) => (d.Profile.Id, i)).ToDictionary(p => p.Id, p => p.i);
+        var seen = new HashSet<Guid>(); bool changed = false;
+        foreach (var profile in profiles)
+        {
+            if (seen.Count >= MaximumDevices) throw new ArgumentException("Import exceeds the device limit.", nameof(profiles));
+            ValidateProfile(profile);
+            if (!seen.Add(profile.Id)) throw new ArgumentException("Duplicate device ID in import.", nameof(profiles));
+            if (indices.TryGetValue(profile.Id, out int index))
+            {
+                if (devices[index].Profile != profile) { devices[index] = devices[index] with { Profile = profile }; changed = true; }
+            }
+            else
+            {
+                if (devices.Count >= MaximumDevices) throw new InvalidOperationException("Device limit reached.");
+                indices.Add(profile.Id, devices.Count); devices.Add(new(profile)); changed = true;
+            }
+        }
+        if (changed) Commit(devices.ToArray());
+    }
+    public ConnectionProfile Duplicate(Guid id)
+    {
+        var original = Find(id)?.Profile ?? throw new KeyNotFoundException("Unknown saved device.");
+        int length = Math.Min(original.Name.Length, 249);
+        if (length < original.Name.Length && char.IsHighSurrogate(original.Name[length - 1])) length--;
+        var copy = original with { Id = Guid.NewGuid(), Name = original.Name[..length] + " (copy)", Favorite = false };
+        Upsert(copy); return copy;
     }
     public bool Remove(Guid id)
     {
-        var devices = _document.Devices.Where(d => d.Profile.Id != id).ToArray();
-        if (devices.Length == _document.Devices.Length) return false;
-        _document = _document with { Devices = devices, Revision = checked(_document.Revision + 1) }; return true;
+        if (Find(id) is null) return false;
+        Commit(_document.Devices.Where(d => d.Profile.Id != id).ToArray()); return true;
     }
     public void MarkConnected(Guid id, DateTimeOffset time)
     {
-        if (!_document.Devices.Any(d => d.Profile.Id == id)) throw new KeyNotFoundException("Unknown saved device.");
-        _document = _document with { Devices = _document.Devices.Select(d => d.Profile.Id == id ? d with { LastConnected = time } : d).ToArray(), Revision = checked(_document.Revision + 1) };
+        var previous = Find(id) ?? throw new KeyNotFoundException("Unknown saved device.");
+        if (previous.LastConnected == time) return;
+        var devices = (SavedDevice[])_document.Devices.Clone();
+        devices[_indices![id]] = previous with { LastConnected = time }; Commit(devices);
     }
     public void Configure(WorkspaceSettings settings)
     {
-        ValidateSettings(settings); _document = _document with { Settings = settings, Revision = checked(_document.Revision + 1) };
+        ValidateSettings(settings);
+        if (settings != _document.Settings) _document = _document with { Settings = settings, Revision = checked(_document.Revision + 1) };
     }
-    public IReadOnlyList<SavedDevice> Query(string search = "", bool favoritesOnly = false, string? group = null)
+    public IReadOnlyList<string> Groups => _groups ??= Array.AsReadOnly(_document.Devices.Select(d => d.Profile.Group)
+        .Distinct(StringComparer.Ordinal).Order(StringComparer.OrdinalIgnoreCase).ThenBy(g => g, StringComparer.Ordinal).ToArray());
+    private IReadOnlyList<SavedDevice> Ordered()
     {
-        ArgumentNullException.ThrowIfNull(search);
-        IEnumerable<SavedDevice> items = _document.Devices.Where(d => (!favoritesOnly || d.Profile.Favorite) &&
-            (group is null || d.Profile.Group == group) &&
-            (d.Profile.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || d.Profile.Host.Contains(search, StringComparison.OrdinalIgnoreCase) || d.Profile.Group.Contains(search, StringComparison.OrdinalIgnoreCase)));
-        return (_document.Settings.Sort switch
+        var settings = Settings;
+        if (_ordered is not null && ReferenceEquals(_orderedSource, _document.Devices) && _orderedSort == settings.Sort && _orderedDescending == settings.SortDescending) return _ordered;
+        IEnumerable<SavedDevice> items = _document.Devices;
+        IOrderedEnumerable<SavedDevice> sorted = settings.Sort switch
         {
             ProfileSort.Group => items.OrderBy(d => d.Profile.Group, StringComparer.OrdinalIgnoreCase).ThenBy(d => d.Profile.Name, StringComparer.OrdinalIgnoreCase),
             ProfileSort.RecentlyUsed => items.OrderByDescending(d => d.LastConnected).ThenBy(d => d.Profile.Name, StringComparer.OrdinalIgnoreCase),
             _ => items.OrderBy(d => d.Profile.Name, StringComparer.OrdinalIgnoreCase)
-        }).ThenBy(d => d.Profile.Id).ToArray();
+        };
+        var ordered = sorted.ThenBy(d => d.Profile.Id).ToArray();
+        if (settings.SortDescending) Array.Reverse(ordered);
+        _orderedSource = _document.Devices; _orderedSort = settings.Sort; _orderedDescending = settings.SortDescending;
+        _query = null; return _ordered = Array.AsReadOnly(ordered);
     }
+    public IReadOnlyList<SavedDevice> Query(string search = "", bool favoritesOnly = false, string? group = null)
+    {
+        ArgumentNullException.ThrowIfNull(search);
+        var ordered = Ordered(); var key = (search, favoritesOnly, group);
+        if (_query is not null && _queryKey == key) return _query;
+        // A longer substring can only match devices already matching its prefix.
+        // Backspacing, changing filters, sorting or editing starts from the full
+        // current order again. Retain only one result, never a cache per prefix.
+        var candidates = _query is not null && _queryKey.Favorites == favoritesOnly && _queryKey.Group == group &&
+            search.StartsWith(_queryKey.Search, StringComparison.OrdinalIgnoreCase) ? _query : ordered;
+        LastQueryCandidateCount = candidates.Count;
+        _queryKey = key;
+        // Filtering the cached order avoids sorting on every keystroke. Only one
+        // last-result cache is retained, so arbitrary searches cannot grow memory.
+        return _query = search.Length == 0 && !favoritesOnly && group is null ? ordered :
+            Filter(candidates, search, favoritesOnly, group);
+    }
+    private static IReadOnlyList<SavedDevice> Filter(IReadOnlyList<SavedDevice> ordered, string search, bool favoritesOnly, string? group) =>
+            Array.AsReadOnly(ordered.Where(d => (!favoritesOnly || d.Profile.Favorite) && (group is null || d.Profile.Group == group) &&
+                (d.Profile.Name.Contains(search, StringComparison.OrdinalIgnoreCase) || d.Profile.Host.Contains(search, StringComparison.OrdinalIgnoreCase) || d.Profile.Group.Contains(search, StringComparison.OrdinalIgnoreCase))).ToArray());
     public string Serialize()
     {
         string json = JsonSerializer.Serialize(_document, WorkspaceJsonContext.Default.WorkspaceDocument);
@@ -84,8 +180,8 @@ public sealed class DeviceCatalog
     {
         ArgumentNullException.ThrowIfNull(json);
         if (System.Text.Encoding.UTF8.GetByteCount(json) > MaximumDocumentBytes) throw new FormatException("Workspace exceeds the storage limit.");
-        var doc = JsonSerializer.Deserialize(json, WorkspaceJsonContext.Default.WorkspaceDocument) ?? throw new FormatException("Empty workspace.");
-        return new(doc);
+        var doc = JsonSerializer.Deserialize(json.AsSpan().TrimStart('\ufeff'), WorkspaceReadJsonContext.Default.WorkspaceReadDocument) ?? throw new FormatException("Empty workspace.");
+        return new(doc.ToDocument());
     }
     private static WorkspaceDocument Clone(WorkspaceDocument doc) => doc with { Devices = doc.Devices is null ? throw new FormatException("Missing device list.") : (SavedDevice[])doc.Devices.Clone() };
     private static void Validate(WorkspaceDocument doc)
