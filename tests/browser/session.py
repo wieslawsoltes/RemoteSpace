@@ -16,7 +16,7 @@ import time
 import traceback
 import urllib.request
 from playwright.async_api import async_playwright, expect
-from driver import boot, command, edit, navigate
+from driver import boot, command, edit, navigate, focus_command
 from clipboard import round_trip
 from graphics_output import validate_output_controls
 from session_display import validate_session_display
@@ -168,7 +168,13 @@ async def run(site, output):
                 await expect(resolution).to_be_enabled(timeout=30000)
                 await command(page,'Remote resolution')
                 before=metrics['surface_packets']
-                await page.get_by_role('menuitem',name='1024 × 768',exact=True).press('Enter')
+                # MenuFlyout assigns its initial native focus asynchronously. Do
+                # not send Enter in the same call which focuses a semantic item:
+                # the initial 800x600 item can otherwise steal that focus.
+                item = page.get_by_role('menuitem', name='1024 × 768', exact=True)
+                await focus_command(page, item)
+                await page.keyboard.press('Enter')
+                await expect(page.get_by_role('menuitem')).to_have_count(0)
                 await asyncio.wait_for(resized.wait(),30)
                 until=time.monotonic()+15
                 while metrics['surface_packets']<=before:
