@@ -71,13 +71,12 @@ jobs:
         with:
           name: uno-browser
           path: artifacts/browser
-      - name: Validate packages and build the real connection bridge
+      - name: Validate shared components
         shell: bash
         run: |
           set -euo pipefail
           dotnet run --project tests/RemoteSpace.Tests -c Release
           dotnet run --project tests/RemoteSpace.Workspace.Tests -c Release
-          dotnet build apps/RemoteSpace.Bridge -c Release
       - name: Install browser validation tools
         run: |
           python3 -m venv /tmp/remote-browser-tests
@@ -85,6 +84,31 @@ jobs:
           /tmp/remote-browser-tests/bin/playwright install --with-deps chromium
       - name: Validate the actual browser workspace
         run: /tmp/remote-browser-tests/bin/python tests/browser/workspace.py artifacts/browser artifacts/browser-validation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-validation
+          path: artifacts/browser-validation
+  session:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: uno-browser
+          path: artifacts/browser
+      - name: Build the real connection bridge
+        run: dotnet build apps/RemoteSpace.Bridge -c Release
+      - name: Install browser validation tools
+        run: |
+          python3 -m venv /tmp/remote-browser-tests
+          /tmp/remote-browser-tests/bin/pip install playwright==1.56.0 pillow==12.0.0
+          /tmp/remote-browser-tests/bin/playwright install --with-deps chromium
       - name: Install the authorized loopback RDP fixture
         env:
           RDP_TEST_MODERN: '1'
@@ -105,16 +129,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: browser-validation
-          path: artifacts/browser-validation
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
           name: browser-session
           path: artifacts/browser-session
   deploy:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-    needs: [build, browser]
+    needs: [build, browser, session]
     runs-on: ubuntu-latest
     permissions:
       contents: read

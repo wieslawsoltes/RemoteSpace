@@ -48,8 +48,10 @@ transform or request an unnecessary redraw.
 
 `CommandActivation.WaitForReleaseAsync` gives semantic/native input routing a
 complete event turn and waits for Enter/Space release before creating a new
-editable dialog. It avoids treating the gesture that opens Edit as its default
-Save command. The UI-thread timer stops on completion, cancellation, unload or
+editable dialog. `ShowDialogAsync` also takes a normal button-click deferral
+until the closing key is released, keeping focus inside the dialog so Save
+cannot reopen the previously focused device menu. It avoids treating the
+gesture that opens Edit as its default Save command. The UI-thread timer stops on completion, cancellation, unload or
 a bounded timeout. The dialog retains its normal default button and explicit
 Add/Save behavior. It does not set DOM input values or bypass user interaction.
 
@@ -96,3 +98,9 @@ uses Chromium/SwiftShader, not hardware-GPU performance validation. Remaining
 protocol/services, live Windows NLA/licensing qualification, multi-monitor,
 IME/touch/accessibility, native-host matrix and security-audit gaps remain in
 [compatibility](compatibility.md).
+
+Workspace and live-session browser jobs run independently from the same compiled
+artifact, so a failure in one does not hide the other suite's diagnostics. Pages
+deployment depends on both jobs as well as the build; neither runtime gate is
+bypassed. The workspace regression holds both opening and Save keys through
+multiple frames and requires no leftover or reopened menu after saving.

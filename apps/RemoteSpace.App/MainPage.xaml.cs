@@ -103,7 +103,7 @@ public sealed partial class MainPage : Page
         {
             var dialog = AccessibleInfoDialog.Create(title, content);
             dialog.XamlRoot = XamlRoot;
-            await dialog.ShowAsync();
+            await CommandActivation.ShowDialogAsync(this, dialog);
         }
         catch (Exception e) { ShowError(e.Message); }
         finally { _dialogOpen = false; }
@@ -111,7 +111,11 @@ public sealed partial class MainPage : Page
     private async Task<bool> Confirm(string title, string message, string action)
     {
         if (_dialogOpen) return false; _dialogOpen = true;
-        try { return await new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = message, PrimaryButtonText = action, CloseButtonText = "Cancel" }.ShowAsync() == ContentDialogResult.Primary; }
+        try
+        {
+            var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = message, PrimaryButtonText = action, CloseButtonText = "Cancel" };
+            return await CommandActivation.ShowDialogAsync(this, dialog) == ContentDialogResult.Primary;
+        }
         finally { _dialogOpen = false; }
     }
     private void ApplyTheme(WorkspaceTheme theme) => RequestedTheme = theme switch { WorkspaceTheme.Light => ElementTheme.Light, WorkspaceTheme.Dark => ElementTheme.Dark, _ => ElementTheme.Default };

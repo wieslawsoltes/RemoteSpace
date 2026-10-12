@@ -37,7 +37,7 @@ public sealed partial class MainPage
             if (bridge.Length > 0) { fields.Children.Add(new TextBlock { Text = bridge, TextWrapping = TextWrapping.Wrap }); fields.Children.Add(token); }
             fields.Children.Add(new TextBlock { Text = "Credentials are kept only for this connection. The bridge, when used, terminates the RDP connection and must be operated by someone you trust.", TextWrapping = TextWrapping.Wrap, MaxWidth = 430, Opacity = .7 });
             var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Connect to " + profile.Name, PrimaryButtonText = "Connect", CloseButtonText = "Cancel", Content = fields };
-            if (await dialog.ShowAsync() != ContentDialogResult.Primary) { password.Password = token.Password = ""; return; }
+            if (await CommandActivation.ShowDialogAsync(this, dialog) != ContentDialogResult.Primary) { password.Password = token.Password = ""; return; }
             IRemoteSession session;
             if (bridge.Length > 0) session = new BridgeSession(new Uri(bridge), token.Password, "https://remotespace.local");
 #if __WASM__

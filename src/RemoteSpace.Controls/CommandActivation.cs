@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Windows.System;
 using Windows.UI.Core;
 
@@ -12,6 +13,46 @@ namespace RemoteSpace.Controls;
 /// keys must be released. No timer remains when complete, cancelled or unloaded.</summary>
 public static class CommandActivation
 {
+    /// <summary>Keep both the opening and closing gestures within their owning
+    /// input scopes. Ordinary default-button validation remains unchanged.</summary>
+    public static async Task<ContentDialogResult> ShowDialogAsync(FrameworkElement owner, ContentDialog dialog)
+    {
+        ArgumentNullException.ThrowIfNull(dialog);
+        await WaitForReleaseAsync(owner);
+        Exception? failure = null;
+        bool completing = false;
+        async void Guard(ContentDialog sender, ContentDialogButtonClickEventArgs args)
+        {
+            if (args.Cancel) return;
+            if (completing) { args.Cancel = true; return; }
+            completing = true;
+            var deferral = args.GetDeferral();
+            try { await WaitForReleaseAsync(sender); }
+            catch (Exception error) { failure = error; args.Cancel = true; }
+            finally
+            {
+                deferral.Complete();
+                completing = false;
+                if (failure is not null) sender.Hide();
+            }
+        }
+        dialog.PrimaryButtonClick += Guard;
+        dialog.SecondaryButtonClick += Guard;
+        dialog.CloseButtonClick += Guard;
+        try
+        {
+            var result = await dialog.ShowAsync();
+            if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            return result;
+        }
+        finally
+        {
+            dialog.PrimaryButtonClick -= Guard;
+            dialog.SecondaryButtonClick -= Guard;
+            dialog.CloseButtonClick -= Guard;
+        }
+    }
+
     public static Task WaitForReleaseAsync(FrameworkElement owner, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -38,10 +79,11 @@ public static class CommandActivation
         {
             if (cancellationToken.IsCancellationRequested) { Finish(new OperationCanceledException()); return; }
             bool pressed = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Enter) & CoreVirtualKeyStates.Down) != 0 ||
-                (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Space) & CoreVirtualKeyStates.Down) != 0;
+                (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Space) & CoreVirtualKeyStates.Down) != 0 ||
+                (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Escape) & CoreVirtualKeyStates.Down) != 0;
             if (!pressed) Finish();
             else if (Stopwatch.GetElapsedTime(started) > TimeSpan.FromSeconds(10))
-                Finish(new TimeoutException("Release Enter or Space, then invoke the command again."));
+                Finish(new TimeoutException("Release the activation key, then invoke the command again."));
         }
         timer.Tick += Tick; owner.Unloaded += Unloaded;
         if (cancellationToken.CanBeCanceled)

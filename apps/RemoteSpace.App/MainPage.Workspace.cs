@@ -101,9 +101,6 @@ public sealed partial class MainPage
         ConnectionProfile? connectAfter = null;
         try
         {
-            // Finish the initiating gesture before a new default-Add/Save dialog
-            // can see it through the host's native input routing.
-            await CommandActivation.WaitForReleaseAsync(this);
             var editor = new ProfileEditor(original); var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
             var content = new StackPanel { Spacing = 12 }; content.Children.Add(error); content.Children.Add(editor);
             var dialog = new ContentDialog { Title = original is null ? "Add a PC" : "Edit PC", Content = content, PrimaryButtonText = original is null ? "Add" : "Save", SecondaryButtonText = original is null ? "Add & connect" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot };
@@ -114,7 +111,7 @@ public sealed partial class MainPage
                 catch (Exception ex) { e.Cancel = true; error.Text = ex.Message; }
             }
             dialog.PrimaryButtonClick += Validate; dialog.SecondaryButtonClick += Validate;
-            var action = await dialog.ShowAsync();
+            var action = await CommandActivation.ShowDialogAsync(this, dialog);
             if (action != ContentDialogResult.None && result is not null && await Mutate(c => c.Upsert(result)) && action == ContentDialogResult.Secondary) connectAfter = result;
         }
         catch (Exception e) { ShowError(e.Message); }
