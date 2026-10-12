@@ -22,13 +22,14 @@ public sealed record ConnectionProfile
     public bool RedirectClipboard { get; init; }
     public bool FitSessionToWindow { get; init; } = true;
     public double LocalZoom { get; init; } = 1;
+    public bool UpdateResolutionOnResize { get; init; }
 
     /// <summary>Initial local presentation only; never changes negotiated pixels or server DPI.</summary>
     public double? GetLocalDisplayScale()
     {
         if (!double.IsFinite(LocalZoom) || LocalZoom is < .1 or > 4)
             throw new ArgumentOutOfRangeException(nameof(LocalZoom), "Local zoom must be between 10% and 400%.");
-        return FitSessionToWindow ? null : LocalZoom;
+        return UpdateResolutionOnResize || FitSessionToWindow ? null : LocalZoom;
     }
     public ConnectionOptions ToOptions()
     {
@@ -89,10 +90,12 @@ public static class RdpFile
         if (clipboard is not (0 or 1)) throw new FormatException("redirectclipboard must be 0 or 1.");
         int smartSizing = Integer("smart sizing", 0);
         if (smartSizing is not (0 or 1)) throw new FormatException("smart sizing must be 0 or 1.");
+        int dynamicResolution = Integer("dynamic resolution", 1);
+        if (dynamicResolution is not (0 or 1)) throw new FormatException("dynamic resolution must be 0 or 1.");
         var profile = new ConnectionProfile { Host = host, Port = port, Name = String("remoteapplicationname", host),
             UserName = String("username"), Domain = String("domain"), Width = Integer("desktopwidth", 1280),
             Height = Integer("desktopheight", 720), BitsPerPixel = Integer("session bpp", 24),
-            Security = nla == 0 ? SecurityMode.Tls : SecurityMode.NetworkLevelAuthentication, RedirectClipboard = clipboard == 1, FitSessionToWindow = smartSizing == 1 };
+            Security = nla == 0 ? SecurityMode.Tls : SecurityMode.NetworkLevelAuthentication, RedirectClipboard = clipboard == 1, FitSessionToWindow = smartSizing == 1, UpdateResolutionOnResize = dynamicResolution == 1 };
         foreach (var key in values.Keys.Order(StringComparer.OrdinalIgnoreCase))
             warnings.Add(key.StartsWith("password", StringComparison.OrdinalIgnoreCase) ? "Embedded credentials were discarded." : $"Setting '{key}' is not implemented and was not applied.");
         profile.ToOptions().Validate();
@@ -129,6 +132,6 @@ public static class RdpFile
         profile.ToOptions().Validate();
         static string Safe(string value) => value.IndexOfAny(['\r', '\n', '\0']) < 0 ? value : throw new ArgumentException("RDP strings cannot contain line breaks or NUL.");
         string host = profile.Host.Contains(':') ? $"[{profile.Host}]" : profile.Host;
-        return $"full address:s:{Safe(host)}:{profile.Port}\r\nusername:s:{Safe(profile.UserName)}\r\ndomain:s:{Safe(profile.Domain)}\r\ndesktopwidth:i:{profile.Width}\r\ndesktopheight:i:{profile.Height}\r\nsession bpp:i:{profile.BitsPerPixel}\r\nenablecredsspsupport:i:{(profile.Security == SecurityMode.NetworkLevelAuthentication ? 1 : 0)}\r\nredirectclipboard:i:{(profile.RedirectClipboard ? 1 : 0)}\r\nsmart sizing:i:{(profile.FitSessionToWindow ? 1 : 0)}\r\n";
+        return $"full address:s:{Safe(host)}:{profile.Port}\r\nusername:s:{Safe(profile.UserName)}\r\ndomain:s:{Safe(profile.Domain)}\r\ndesktopwidth:i:{profile.Width}\r\ndesktopheight:i:{profile.Height}\r\nsession bpp:i:{profile.BitsPerPixel}\r\nenablecredsspsupport:i:{(profile.Security == SecurityMode.NetworkLevelAuthentication ? 1 : 0)}\r\nredirectclipboard:i:{(profile.RedirectClipboard ? 1 : 0)}\r\nsmart sizing:i:{(profile.FitSessionToWindow ? 1 : 0)}\r\ndynamic resolution:i:{(profile.UpdateResolutionOnResize ? 1 : 0)}\r\n";
     }
 }
