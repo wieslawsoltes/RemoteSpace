@@ -15,7 +15,6 @@ async def validate_output_controls(page, metrics, output, passed):
     def background(color):
         subprocess.run(['sudo','-u','rdptest','env','DISPLAY=:10','XAUTHORITY=/home/rdptest/.Xauthority',
                         'xsetroot','-solid',color], check=True, timeout=5)
-    await expect(page.get_by_role('button', name='Pause updates', exact=True)).to_be_enabled(timeout=10000)
     await command(page, 'Pause updates')
     await diagnostic('Graphics output pause requested.')
     # Drain already-in-flight loopback output before changing the independent server.

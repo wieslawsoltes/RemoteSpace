@@ -8,8 +8,15 @@ from driver import boot, command, edit, navigate
 
 async def validate_workspace_ui(page, output, passed):
     async def action(name, item):
+        await expect(page.get_by_role('menuitem')).to_have_count(0)
         await command(page, 'Options for ' + name)
-        await page.get_by_role('menuitem', name=item, exact=True).press('Enter', delay=80)
+        target = page.get_by_role('menuitem', name=item, exact=True)
+        await expect(target).to_be_visible()
+        await target.focus()
+        # This command can remove its own semantic node on keydown. A locator
+        # retry risks replaying the command; keep one real keydown/keyup sequence.
+        await page.keyboard.press('Enter', delay=80)
+        await expect(page.get_by_role('menuitem')).to_have_count(0)
     await navigate(page, 'Devices')
     await command(page, 'Add PC')
     await edit(page, 'PC address', 'quick.test.invalid')
@@ -32,6 +39,8 @@ async def validate_workspace_ui(page, output, passed):
         raise AssertionError('Exported RDP file does not describe the chosen saved device')
     passed('Export command downloads an actual credential-free RDP profile')
     await command(page, 'List view')
+    await expect(page.get_by_role('button', name='List view', exact=True)).to_have_attribute('aria-pressed', 'true')
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await action('quick.test.invalid (copy)', 'Edit')
     await expect(page.get_by_label('Friendly name', exact=True)).to_be_visible(timeout=15000)
     await expect(page.get_by_role('button', name='Save', exact=True)).to_be_attached()

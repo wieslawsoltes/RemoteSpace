@@ -42,7 +42,26 @@ async def boot(page, url=None):
     finally:
         page.remove_listener('console', console)
 
+SESSION_MENUS = {
+    'Pause updates': 'Session actions', 'Resume updates': 'Session actions', 'Refresh desktop': 'Session actions',
+    'Ctrl+Alt+Del': 'Session actions', 'Capture': 'Session actions', 'Connection information': 'Session actions',
+    'Send clipboard': 'Clipboard', 'Copy remote text': 'Clipboard',
+    '100%': 'Display settings', '125%': 'Display settings', '150%': 'Display settings', '200%': 'Display settings',
+    '300%': 'Display settings', '400%': 'Display settings', 'Zoom in': 'Display settings', 'Zoom out': 'Display settings',
+    'Top left': 'Display settings', 'Bottom right': 'Display settings', 'Fit to window': 'Display settings'
+}
+
 async def command(page, name):
+    if name in SESSION_MENUS:
+        group = page.get_by_role('button', name=SESSION_MENUS[name], exact=True)
+        await expect(group).to_be_visible(timeout=30000)
+        await group.press('Enter')
+        item = page.get_by_role('menuitem', name=name, exact=True)
+        await expect(item).to_be_enabled(timeout=10000)
+        await item.focus()
+        await page.keyboard.press('Enter')
+        await expect(page.get_by_role('menuitem')).to_have_count(0)
+        return
     button = page.get_by_role('button', name=name, exact=True)
     await expect(button).to_be_attached(timeout=30000)
     await button.press('Enter')

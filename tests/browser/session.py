@@ -19,6 +19,7 @@ from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate
 from clipboard import round_trip
 from graphics_output import validate_output_controls
+from session_display import validate_session_display
 from input_events import validate_extended_input
 
 async def run(site, output):
@@ -78,6 +79,10 @@ async def run(site, output):
                         count=len(message.get('Inputs') or [])
                         metrics['input_packets']+=count;metrics['input_batches']+=1
                         metrics['max_input_batch']=max(metrics['max_input_batch'],count)
+                    events = [message.get('Input')] if message.get('Type') == 'input' else message.get('Inputs') or []
+                    for event in events:
+                        if event and event.get('Kind') == 2 and event.get('Flags') == 0x0800:
+                            metrics['last_pointer'] = {key:event[key] for key in ('X','Y')}
                     if message.get('Type')=='clipboard':
                         metrics['clipboard_packets']+=1
                         metrics['clipboard_lengths'].append(len(message.get('Text') or ''))
@@ -172,6 +177,7 @@ async def run(site, output):
                 await rendered('02-resized-desktop.png')
                 passed('Browser resolution command produces server-confirmed 1024x768 pixels')
                 await round_trip(page, origin, passed)
+                await validate_session_display(page, metrics, output, passed)
                 await validate_output_controls(page, metrics, output, passed)
                 # TabView's built-in close button is deliberately not a tab stop.
                 # Its semantic HTML proxy cannot focus the native button on Enter;
