@@ -15,7 +15,7 @@ public sealed partial class MainPage
         try
         {
             var editor = new DisplayResolutionEditor(view.DesktopWidth, view.DesktopHeight, capabilities);
-            var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var error = new ValidationMessage();
             var content = new StackPanel { Spacing = 12 };
             content.Children.Add(editor); content.Children.Add(error);
             var dialog = new ContentDialog
@@ -26,11 +26,10 @@ public sealed partial class MainPage
             DisplayMonitor? monitor = null;
             dialog.PrimaryButtonClick += (_, args) =>
             {
-                try { monitor = editor.ReadMonitor(); }
+                try { monitor = editor.ReadMonitor(); error.Show(""); }
                 catch (Exception e) when (e is ArgumentException or FormatException)
                 {
-                    args.Cancel = true; error.Text = e.Message;
-                    AutomationProperties.SetName(error, e.Message);
+                    args.Cancel = true; error.Show(e.Message);
                 }
             };
             return await CommandActivation.ShowDialogAsync(this, dialog) == ContentDialogResult.Primary ? monitor : null;

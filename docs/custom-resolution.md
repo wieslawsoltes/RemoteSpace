@@ -31,3 +31,11 @@ one copy per row. Partial-width rectangles retain the row-stride path and all
 bounds/storage-isolation checks. The regression compares both paths and verifies
 unrelated rows and caller-owned arrays remain isolated. This reduces copy-call
 overhead for wide update strips; it is not an end-to-end throughput claim.
+
+Inline validation uses the reusable `ValidationMessage` control. It inserts a
+fully populated text peer on error, replaces it for a different error, and removes
+it on success. Creating an empty TextBlock first left a visibly rendered error
+absent from the pinned browser accessibility tree. The live test now requires
+both the odd-width and out-of-range messages, removal of the replaced peer, and
+no outgoing request for either error. It does not weaken validation to accept
+invalid geometry or substitute screenshot-only evidence for accessibility.

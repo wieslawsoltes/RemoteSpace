@@ -25,6 +25,14 @@ async def validate_custom_resolution(page, metrics, output, passed):
     await expect(page.get_by_label('Remote width', exact=True)).to_have_value('1153')
     if metrics['sizes'] != sizes_before or metrics['layout_requests'] != requests_before:
         raise AssertionError('An invalid custom resolution changed the remote desktop.')
+    # A second distinct error must replace the first peer, not leave stale
+    # announcements, and still send no resize while the form remains editable.
+    await edit(page, 'Remote width', '199')
+    await command(page, 'Apply')
+    await expect(page.get_by_label('Width must be a whole number from 200 to 8192 pixels.', exact=True)).to_be_visible()
+    await expect(page.get_by_label('Width must be an even number of pixels.', exact=True)).to_have_count(0)
+    if metrics['layout_requests'] != requests_before:
+        raise AssertionError('Repeated invalid validation sent a resize.')
     await edit(page, 'Remote width', '1152')
     before = metrics['surface_packets']
     await command(page, 'Apply')
