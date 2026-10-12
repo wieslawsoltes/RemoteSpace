@@ -22,6 +22,7 @@ public sealed partial class RemoteDesktopView
     private readonly ScrollBar _horizontal = new() { Orientation = Orientation.Horizontal, Height = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, IndicatorMode = ScrollingIndicatorMode.MouseIndicator, Visibility = Visibility.Collapsed };
     private readonly ScrollBar _vertical = new() { Orientation = Orientation.Vertical, Width = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, IndicatorMode = ScrollingIndicatorMode.MouseIndicator, Visibility = Visibility.Collapsed };
     public event Action? ViewChanged;
+    public event Action? PresentationActivityChanged;
     public DesktopViewportLayout ViewLayout => _viewLayout;
     public long ScheduledPresentations { get; private set; }
     /// <summary>Host visibility policy. Decoding still retains the latest pixels;
@@ -29,7 +30,7 @@ public sealed partial class RemoteDesktopView
     public bool IsPresentationActive
     {
         get => _presentationActive;
-        set { if (_presentationActive == value) return; _presentationActive = value; UpdatePresentationActivity(); }
+        set { if (_presentationActive == value) return; _presentationActive = value; UpdatePresentationActivity(); PresentationActivityChanged?.Invoke(); }
     }
     private void ConfigureViewport()
     {

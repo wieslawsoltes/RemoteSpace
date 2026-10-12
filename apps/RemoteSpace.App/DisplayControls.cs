@@ -8,7 +8,7 @@ namespace RemoteSpace.App;
 
 public sealed partial class MainPage
 {
-    private void AddDisplayControls(IRemoteSession session, RemoteDesktopView view, SessionCommandBar bar)
+    private void AddDisplayControls(IRemoteSession session, RemoteDesktopView view, SessionCommandBar bar, SessionDisplayController? controller)
     {
         bar.AddMenu("Display settings", "\uE713", () =>
         {
@@ -26,16 +26,20 @@ public sealed partial class MainPage
             menu.Items.Add(bar.MenuCommand("Bottom right", () => { view.PanTo(double.MaxValue, double.MaxValue); return Task.CompletedTask; }, !view.FitToWindow));
             return menu;
         });
-        if (session is not IRemoteDisplayControl display) return;
+        if (session is not IRemoteDisplayControl display || controller is null) return;
         var button = bar.AddMenu("Remote resolution", "\uE7F4", () =>
         {
             var menu = new MenuFlyout();
             async Task Resize(int width, int height)
             {
-                await view.ReleaseHeldInputAsync();
-                await display.RequestDisplayLayoutAsync([new DisplayMonitor(0, 0, width, height)]);
-                view.SetScale(null);
+                await controller.RequestResolutionAsync(new DisplayMonitor(0, 0, width, height));
             }
+            menu.Items.Add(bar.MenuCommand("Update resolution on resize", () =>
+            {
+                controller.AutomaticResolution = !controller.AutomaticResolution;
+                return Task.CompletedTask;
+            }, glyph: controller.AutomaticResolution ? "\uE73E" : null));
+            menu.Items.Add(new MenuFlyoutSeparator());
             foreach (var (width, height) in new[] { (800,600), (1024,768), (1280,720), (1600,900), (1920,1080), (2560,1440), (3840,2160) })
             {
                 bool allowed = false;
@@ -53,9 +57,9 @@ public sealed partial class MainPage
             }));
             menu.Items.Add(bar.MenuCommand("Match window", async () =>
             {
-                int width = Math.Clamp((int)view.ActualWidth, 200, 8192) & ~1;
-                int height = Math.Clamp((int)view.ActualHeight, 200, 8192);
-                await Resize(width, height);
+                if (!DisplayResizeTarget.TryFromViewport(view.ActualWidth, view.ActualHeight, display.DisplayCapabilities, out var target))
+                    throw new InvalidOperationException("This window size is outside the server's display limits.");
+                await Resize(target.Width, target.Height);
             }));
             return menu;
         });

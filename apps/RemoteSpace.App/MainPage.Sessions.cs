@@ -60,8 +60,14 @@ public sealed partial class MainPage
             var tab = new TabViewItem { Header = profile.Name, IsClosable = true };
             AutomationProperties.SetName(tab, profile.Name);
             var opened = new OpenSession(profile, session, view, tab, panel); pendingTab = opened;
+            if (session is IRemoteDisplayControl)
+            {
+                opened.Display = new SessionDisplayController(session, view);
+                opened.Display.Failed += ShowError;
+                opened.Display.AutomaticResolution = profile.UpdateResolutionOnResize;
+            }
             toolbar.AddCommand("Fit", "\uE9A6", () => { view.SetScale(null); view.Focus(FocusState.Programmatic); return Task.CompletedTask; });
-            AddDisplayControls(session, view, toolbar);
+            AddDisplayControls(session, view, toolbar, opened.Display);
             AddClipboardCommands(toolbar, opened);
             AddSessionActions(toolbar, opened);
             toolbar.AddCommand("Full screen", "\uE740", () =>
@@ -71,8 +77,9 @@ public sealed partial class MainPage
                 else if (!appView.TryEnterFullScreenMode()) throw new InvalidOperationException("Full screen was declined by the host. Try the browser's full-screen command.");
                 return Task.CompletedTask;
             });
-            void UpdateBar() => toolbar.Status = $"{session.State} · {view.DesktopWidth} × {view.DesktopHeight} · {(view.FitToWindow ? "Fit" : view.Zoom.ToString("0%"))}";
+            void UpdateBar() => toolbar.Status = $"{session.State} · {view.DesktopWidth} × {view.DesktopHeight} · {(view.FitToWindow ? "Fit" : view.Zoom.ToString("0%"))}{(opened.Display?.AutomaticResolution == true ? " · Auto" : "")}";
             view.ViewChanged += UpdateBar;
+            if (opened.Display is { } controller) controller.Changed += UpdateBar;
             if (session is IRemoteGraphicsOutput output)
                 output.OutputEnabledChanged += enabled => DispatcherQueue.TryEnqueue(() => { if (_sessions.Contains(opened)) view.IsEnabled = enabled; });
             view.InputError += ShowError;
@@ -103,7 +110,7 @@ public sealed partial class MainPage
             if (token is not null) token.Password = "";
             try
             {
-                if (pendingTab is not null) { _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation(); }
+                if (pendingTab is not null) { if (pendingTab.Display is { } controller) await controller.DisposeAsync(); _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation(); }
                 try { if (pendingView is not null) await pendingView.DisposeAsync(); }
                 finally { if (pendingSession is not null) await pendingSession.DisposeAsync(); }
             }
@@ -129,6 +136,7 @@ public sealed partial class MainPage
         opened.Closing = true;
         try
         {
+            if (opened.Display is { } controller) await controller.DisposeAsync();
             await opened.View.AttachAsync(null); opened.Stop.Cancel(); await opened.Session.DisconnectAsync(); await opened.Running;
             await opened.View.DisposeAsync(); await opened.Session.DisposeAsync(); opened.Stop.Dispose();
             _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab); RefreshSessionState(); RefreshSessionPresentation();
@@ -144,6 +152,7 @@ public sealed partial class MainPage
     {
         public ConnectionProfile Profile { get; } = profile;
         public IRemoteSession Session { get; } = session;
+        public SessionDisplayController? Display { get; set; }
         public RemoteDesktopView View { get; } = view;
         public TabViewItem Tab { get; set; } = tab;
         public Grid Panel { get; } = panel;

@@ -76,7 +76,7 @@ public sealed class ProfileEditor : UserControl
     {
         private readonly TextBox _name = Field("Friendly name"), _group = Field("Group"), _user = Field("User name"), _domain = Field("Domain"), _pin = Field("Certificate SHA-256 pin (optional)");
         private readonly NumberBox _port = new() { Header = "Port", Minimum = 1, Maximum = 65535, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
-        private readonly SavedDisplaySettingsEditor _display;
+        private SavedDisplaySettingsEditor? _display;
         private readonly ComboBox _security = new() { Header = "Connection security", HorizontalAlignment = HorizontalAlignment.Stretch };
         private readonly CheckBox _clipboard = new() { Content = "Allow text clipboard redirection (opt-in)" };
         public Control[] Controls { get; }
@@ -84,19 +84,33 @@ public sealed class ProfileEditor : UserControl
         {
             _name.Text = profile.Name; _group.Text = profile.Group; _user.Text = profile.UserName; _domain.Text = profile.Domain;
             _pin.Text = profile.CertificateSha256 ?? ""; _port.Value = profile.Port;
-            _display = new SavedDisplaySettingsEditor(profile);
             _security.Items.Add("Network Level Authentication (recommended)");
             _security.Items.Add("TLS (only for hosts explicitly configured without NLA)");
             _security.SelectedIndex = (int)profile.Security;
             _clipboard.IsChecked = profile.RedirectClipboard;
-            Controls = [_name, _port, _group, _user, _domain, _security, _pin, _clipboard, _display];
+            Controls = [new SettingsSectionTabs(
+                ("General", () =>
+                {
+                    var panel = new StackPanel { Spacing = 12 };
+                    foreach (var field in new Control[] { _name, _port, _group, _user, _domain, _security, _pin, _clipboard }) panel.Children.Add(field);
+                    return panel;
+                }),
+                ("Display", () =>
+                {
+                    _display = new SavedDisplaySettingsEditor(profile);
+                    var panel = new StackPanel(); panel.Children.Add(_display); return panel;
+                }))];
         }
-        public ConnectionProfile Read(ConnectionProfile original) => _display.Read(original with
+        public ConnectionProfile Read(ConnectionProfile original)
         {
+            var result = original with
+            {
             Name = _name.Text, Group = _group.Text.Trim(), UserName = _user.Text.Trim(), Domain = _domain.Text.Trim(),
             Port = Integer(_port.Value, "port"), Security = (SecurityMode)_security.SelectedIndex,
             CertificateSha256 = string.IsNullOrWhiteSpace(_pin.Text) ? null : _pin.Text.Trim().Replace(":", ""), RedirectClipboard = _clipboard.IsChecked == true
-        });
+            };
+            return _display?.Read(result) ?? result;
+        }
     }
 
     private static int Integer(double value, string field) => double.IsFinite(value) && value == Math.Truncate(value) && value <= int.MaxValue && value >= int.MinValue ? (int)value : throw new ArgumentException("Enter a whole number for " + field + ".");
