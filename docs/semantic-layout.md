@@ -41,3 +41,11 @@ live session objects, selected identity, view controls and decoded pixels remain
 State changes update the current selector, not a captured obsolete container.
 Browser coverage still clicks the actual native Close Tab button after navigation
 and requires successful disconnect followed by a fresh credential-based reconnect.
+
+Toolbar keyboard activation is also scoped explicitly. An owned native HTML
+button keeps its standard Enter/Space default, which invokes Uno's existing
+button provider; the same gesture does not also enter the document-level native
+keyboard router. Only buttons bearing the generated RemoteSpace session-command
+AutomationId are affected. Other keys, unowned buttons and canvas input retain
+normal routing. Repeats and a release after focus changes cannot activate a
+second command. No command implementation, DOM value or private API is replaced.

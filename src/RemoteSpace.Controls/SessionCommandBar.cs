@@ -65,6 +65,7 @@ public sealed partial class SessionCommandBar : UserControl
     {
         var button = new Button { Content = new FontIcon { Glyph = glyph, FontSize = 17 }, Width = 36, Height = 36,
             Padding = new Thickness(8), BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        AutomationProperties.SetAutomationId(button, "remotespace-session-command-" + Guid.NewGuid().ToString("N"));
         AutomationProperties.SetName(button, name); ToolTipService.SetToolTip(button, name);
         Commands.Children.Add(button); return button;
     }
