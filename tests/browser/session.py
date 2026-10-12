@@ -18,6 +18,7 @@ import urllib.request
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate, focus_command
 from clipboard import round_trip
+from saved_display import fixed_local_zoom
 from graphics_output import validate_output_controls
 from session_display import validate_session_display
 from input_events import validate_extended_input
@@ -121,6 +122,7 @@ async def run(site, output):
                 await edit(page,'User name',os.environ.get('RDP_TEST_USER','rdptest'))
                 await edit(page,'Certificate SHA-256 pin (optional)',pin)
                 await page.get_by_role('checkbox',name='Allow text clipboard redirection (opt-in)',exact=True).press('Space')
+                await fixed_local_zoom(page)
                 security=page.get_by_role('combobox',name='Connection security',exact=True)
                 # Change selection while closed. Enter in a ContentDialog can
                 # submit its default Save command rather than open this peer.
@@ -148,6 +150,11 @@ async def run(site, output):
                     await page.screenshot(path=str(output/'failure-diagnostics.png'))
                     raise AssertionError('The managed browser session faulted after receiving desktop packets. See diagnostics.')
                 passed('Actual Uno client authenticates and receives real XRDP desktop pixels')
+                await expect(page.get_by_label('Active · 1280 × 720 · 150%', exact=True)).to_be_visible()
+                await expect(page.get_by_label('Horizontal desktop position', exact=True)).to_be_visible()
+                if metrics['layout_requests'] != 0:
+                    raise AssertionError('Saved local zoom sent an unintended server resize.')
+                passed('A new session applies the saved 150% local zoom without changing server geometry')
                 await command(page,'Fit')
                 await page.keyboard.type('touch browserproof',delay=50)
                 await page.keyboard.press('Enter')
@@ -202,6 +209,8 @@ async def run(site, output):
                 await asyncio.wait_for(active.wait(),60)
                 await rendered('04-reconnected-desktop.png')
                 passed('Saved profile reconnects through a fresh session after explicit credential entry')
+                await expect(page.get_by_label('Active · 1280 × 720 · 150%', exact=True)).to_be_visible()
+                passed('Reconnection restores saved local zoom rather than the previous session toolbar override')
                 if errors: raise AssertionError('Uncaught browser errors: '+'\n'.join(errors))
                 passed('No uncaught JavaScript or WASM session errors')
             except BaseException:

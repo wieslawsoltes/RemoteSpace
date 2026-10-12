@@ -101,14 +101,14 @@ public sealed partial class MainPage
         ConnectionProfile? connectAfter = null;
         try
         {
-            var editor = new ProfileEditor(original); var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var editor = new ProfileEditor(original); var error = new ValidationMessage();
             var content = new StackPanel { Spacing = 12 }; content.Children.Add(error); content.Children.Add(editor);
             var dialog = new ContentDialog { Title = original is null ? "Add a PC" : "Edit PC", Content = content, PrimaryButtonText = original is null ? "Add" : "Save", SecondaryButtonText = original is null ? "Add & connect" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot };
             ConnectionProfile? result = null;
             void Validate(ContentDialog sender, ContentDialogButtonClickEventArgs e)
             {
-                try { result = editor.ReadProfile(); _ = new DeviceCatalog(new() { Devices = [new(result)] }); }
-                catch (Exception ex) { e.Cancel = true; error.Text = ex.Message; }
+                try { result = editor.ReadProfile(); _ = new DeviceCatalog(new() { Devices = [new(result)] }); error.Show(""); }
+                catch (Exception ex) { e.Cancel = true; error.Show(ex.Message); }
             }
             dialog.PrimaryButtonClick += Validate; dialog.SecondaryButtonClick += Validate;
             var action = await CommandActivation.ShowDialogAsync(this, dialog);

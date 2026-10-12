@@ -5,6 +5,7 @@ import re
 import uuid
 from playwright.async_api import expect
 from driver import boot, command, edit, navigate, focus_command
+from saved_display import validate_saved_display_settings
 
 async def validate_workspace_ui(page, output, passed):
     async def action(name, item):
@@ -116,6 +117,8 @@ async def validate_workspace_ui(page, output, passed):
     await expect(page.get_by_role('button', name='Add PC', exact=True)).to_be_attached()
     await page.set_viewport_size({'width':1440,'height':1000})
     passed('Live light/dark preferences survive reload and the workspace adapts to a narrow window')
+
+    await validate_saved_display_settings(page, output, passed)
 
     # Import a real user-selected workspace file to exercise the bounded bulk path.
     devices = [{'Profile': {'Id':str(uuid.uuid4()), 'Name':f'Benchmark {i:04}', 'Host':f'pc-{i}.test.invalid', 'Group':'Load'}} for i in range(1000)]

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using RemoteSpace.Core;
 using RemoteSpace.Profiles;
@@ -61,11 +62,22 @@ internal static class DisplayPreferencesRegressions
         var unsupported = RdpFile.Parse("full address:s:pc.test.invalid\ndesktopscalefactor:i:150\ndynamic resolution:i:1");
         Check(unsupported.Warnings.Count == 2 && unsupported.Profile.LocalZoom == 1, "unsupported DPI and automatic-resolution flags are not silently applied as local scaling");
         var fixedScale = profile with { FitSessionToWindow = false, LocalZoom = 1.5 };
-        for (int i = 0; i < 10; i++) _ = fixedScale.GetLocalDisplayScale();
-        long before = GC.GetAllocatedBytesForCurrentThread(); double sum = 0;
-        for (int i = 0; i < 100_000; i++) sum += fixedScale.GetLocalDisplayScale()!.Value;
+        // Warm the exact non-tiered measurement kernel, not just ten calls in
+        // this long test method (whose on-stack replacement can add runtime noise).
+        _ = SumScales(fixedScale, 100_000);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        double sum = SumScales(fixedScale, 100_000);
         long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        Console.WriteLine($"MEASUREMENT scale reads allocated {allocated} bytes, checksum {sum.ToString(CultureInfo.InvariantCulture)}.");
         Check(allocated == 0 && sum == 150_000, "warm local scale selection has no per-read allocation");
         Console.WriteLine($"PASS {checks} saved-display/default/import/isolation regressions; 100000 scale reads allocate {allocated.ToString(CultureInfo.InvariantCulture)} bytes.");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining | MethodImplOptions.AggressiveOptimization)]
+    private static double SumScales(ConnectionProfile profile, int count)
+    {
+        double sum = 0;
+        for (int i = 0; i < count; i++) sum += profile.GetLocalDisplayScale()!.Value;
+        return sum;
     }
 }
