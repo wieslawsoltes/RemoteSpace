@@ -53,7 +53,7 @@ public sealed partial class MainPage
             toolbar.CommandFailed += ShowError;
             var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
             panel.Children.Add(toolbar); Grid.SetRow(view, 1); panel.Children.Add(view);
-            // Keep the live surface in a real sibling presenter, not TabView's
+            // Keep the live surface in a direct visual sibling container, not TabView's
             // logically reparented content: that host loses the strip offset in
             // its browser semantic bounds, corrupting precise input targeting.
             var tab = new TabViewItem { Header = profile.Name, IsClosable = true };
