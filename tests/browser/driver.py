@@ -43,6 +43,7 @@ async def boot(page, url=None):
         page.remove_listener('console', console)
 
 SESSION_MENUS = {
+    'Update resolution on resize': 'Remote resolution',
     'Pause updates': 'Session actions', 'Resume updates': 'Session actions', 'Refresh desktop': 'Session actions',
     'Ctrl+Alt+Del': 'Session actions', 'Capture': 'Session actions', 'Connection information': 'Session actions',
     'Send clipboard': 'Clipboard', 'Copy remote text': 'Clipboard',

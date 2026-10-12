@@ -69,3 +69,5 @@ The Uno workflow publishes to GitHub Pages only from `main`, after its build and
 Implementation is guided by Microsoft's public [MS-RDPBCGR](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/), [MS-CSSP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cssp/), [MS-RDPELE](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpele/), [MS-RDPECLIP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/), [MS-RDPEDYC](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedyc/), and [MS-RDPEDISP](https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedisp/) specifications. Protocol compatibility does not imply Microsoft endorsement or entitlement to proprietary assets.
 
 Recent input and lifetime improvements, benchmarks and remaining review boundaries: [input and lifecycle review](docs/input-and-lifecycle-review.md).
+
+Per-PC automatic resolution, General/Display settings pages and bounded resize scheduling are documented in [automatic resolution](docs/automatic-resolution.md).

@@ -11,8 +11,8 @@ The interaction follows the distinction in Microsoft's [Windows App display
 settings](https://learn.microsoft.com/en-us/windows-app/display-settings): fitting
 scales the local presentation without changing remote resolution. This is an
 independent single-display implementation, not complete Windows App UI or service
-parity. Automatic resolution-on-window-resize, multi-monitor configuration and
-server DPI preferences remain separate unimplemented settings.
+parity. Automatic resolution-on-window-resize is described in [automatic resolution](automatic-resolution.md).
+Multi-monitor configuration and server DPI preferences remain separate unimplemented settings.
 
 ## Model and compatibility
 
@@ -40,7 +40,8 @@ absent-field default is 0 (no automatic local fitting), unlike a newly created
 RemoteSpace profile's default. Export writes the field explicitly. Local fixed
 magnification is saved in workspace JSON only; it is **not** exported as
 `desktopscalefactor`, which concerns remote-session scaling. Unsupported server
-DPI and dynamic-resolution properties continue to produce import warnings.
+DPI properties continue to produce import warnings. The standard dynamic-resolution
+property is now supported; see the automatic-resolution document for its defaults.
 Known integer fields reject embedded/trailing NUL instead of accepting a numeric
 prefix through .NET's parser. The source reference is Microsoft's [supported RDP
 properties](https://learn.microsoft.com/en-us/azure/virtual-desktop/rdp-properties).
