@@ -3,9 +3,6 @@ using RemoteSpace.Core;
 
 internal static class AutomaticResizeTests
 {
-    [ModuleInitializer]
-    internal static void Initialize() => RunAsync().GetAwaiter().GetResult();
-
     internal static async Task RunAsync()
     {
         int checks = 0;

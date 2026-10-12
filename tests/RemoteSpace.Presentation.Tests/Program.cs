@@ -72,3 +72,5 @@ for (int i = 0; i < 100_000; i++) sum += DesktopViewportLayout.Calculate(1000, 8
 long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 Check(allocated == 0 && sum > 0, "100000 viewport layouts allocate zero managed bytes after warmup");
 Console.WriteLine($"RESULT: {checks} presentation, viewport and invalid-input checks passed.");
+
+AutomaticResizeTests.RunAsync().GetAwaiter().GetResult();

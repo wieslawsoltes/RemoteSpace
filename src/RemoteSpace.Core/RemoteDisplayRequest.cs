@@ -17,7 +17,7 @@ public static class RemoteDisplayRequest
         stop.CancelAfter(timeout);
         var confirmed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var gate = new object();
-        bool matched = false;
+        bool matched = false, sending = false;
         void CheckState(SessionState state)
         {
             lock (gate)
@@ -31,6 +31,7 @@ public static class RemoteDisplayRequest
         {
             lock (gate)
             {
+                if (!sending) return;
                 matched = size.Width == monitor.Width && size.Height == monitor.Height;
                 CheckState(session.State);
             }
@@ -40,6 +41,7 @@ public static class RemoteDisplayRequest
         try
         {
             await SessionReadiness.WaitForActiveAsync(session, stop.Token).ConfigureAwait(false);
+            lock (gate) sending = true;
             await display.RequestDisplayLayoutAsync([monitor], stop.Token).ConfigureAwait(false);
             await confirmed.Task.WaitAsync(stop.Token).ConfigureAwait(false);
         }
