@@ -72,6 +72,11 @@ jobs:
         run: |
           set -euo pipefail
           dotnet run --project tests/RemoteSpace.Lifecycle.Tests -c Release 2>&1 | tee artifacts/validation/lifecycle-tests.log
+      - name: Viewport and idle-presentation regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/RemoteSpace.Presentation.Tests -c Release 2>&1 | tee artifacts/validation/presentation-tests.log
       - name: Pack reusable components
         shell: bash
         run: |
