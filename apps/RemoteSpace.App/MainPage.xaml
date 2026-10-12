@@ -73,7 +73,7 @@
             </Grid>
             <Grid x:Name="SessionPanel" RowDefinitions="Auto,*" Visibility="Collapsed">
               <TabView x:Name="Sessions" Height="40" HorizontalAlignment="Stretch" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
-              <Border x:Name="SessionContent" Grid.Row="1" AutomationProperties.Name="Active remote session" />
+              <controls:SemanticLayoutHost x:Name="SessionContent" Grid.Row="1" AutomationProperties.Name="Active remote session" />
             </Grid>
             <StackPanel x:Name="SessionsEmpty" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16"><FontIcon Glyph="&#xE8A7;" FontSize="56" /><TextBlock Text="No active sessions" FontSize="22" /><Button Content="Browse devices" HorizontalAlignment="Center" Click="GoToDevices" /></StackPanel>
             <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed"><StackPanel x:Name="SettingsBody" Spacing="16" MaxWidth="720" HorizontalAlignment="Stretch" /></ScrollViewer>

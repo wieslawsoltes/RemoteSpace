@@ -14,6 +14,12 @@ from driver import command, navigate
 
 async def validate_session_display(page, metrics, output, passed):
     sizes_before = list(metrics['sizes'])
+    # The viewport's owning layout row must survive semantic-tree pruning.
+    # Otherwise a later ancestor offset leaves stale absolute child bounds.
+    host = page.get_by_label('Active remote session', exact=True)
+    await expect(host).to_be_visible(timeout=10000)
+    await expect(host.get_by_label('Remote desktop', exact=True)).to_be_visible()
+
     async with page.expect_download(timeout=15000) as captured:
         await command(page, 'Capture')
     reference_path = output / 'remote-reference.png'
