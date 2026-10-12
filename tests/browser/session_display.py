@@ -11,6 +11,7 @@ import time
 from PIL import Image
 from playwright.async_api import expect
 from driver import command, navigate
+from session_resolution import validate_custom_resolution
 
 async def validate_session_display(page, metrics, output, passed):
     sizes_before = list(metrics['sizes'])
@@ -150,3 +151,5 @@ async def validate_session_display(page, metrics, output, passed):
         await background('#14283c')
         await command(page, 'Fit')
     passed('A hidden session retains server updates and presents them when selected again')
+
+    await validate_custom_resolution(page, metrics, output, passed)

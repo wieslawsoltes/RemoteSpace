@@ -13,11 +13,11 @@ public sealed partial class MainPage
         bar.AddMenu("Display settings", "\uE713", () =>
         {
             var menu = new MenuFlyout();
-            menu.Items.Add(bar.MenuCommand("Fit to window", () => { view.SetScale(null); return Task.CompletedTask; }));
+            menu.Items.Add(bar.MenuCommand("Fit to window", () => { view.SetScale(null); return Task.CompletedTask; }, glyph: view.FitToWindow ? "\uE73E" : null));
             foreach (double scale in new[] { 1d, 1.25, 1.5, 2, 3, 4 })
             {
                 double chosen = scale;
-                menu.Items.Add(bar.MenuCommand(scale.ToString("0%"), () => { view.SetScale(chosen); return Task.CompletedTask; }, view.DesktopWidth > 0));
+                menu.Items.Add(bar.MenuCommand(scale.ToString("0%"), () => { view.SetScale(chosen); return Task.CompletedTask; }, view.DesktopWidth > 0, !view.FitToWindow && view.Zoom == chosen ? "\uE73E" : null));
             }
             menu.Items.Add(new MenuFlyoutSeparator());
             menu.Items.Add(bar.MenuCommand("Zoom in", () => { view.SetScale(Math.Min(4, view.Zoom + .25)); return Task.CompletedTask; }, view.DesktopWidth > 0));
@@ -41,9 +41,16 @@ public sealed partial class MainPage
                 bool allowed = false;
                 try { if (display.DisplayCapabilities is { } caps) { DisplayLayout.Validate([new DisplayMonitor(0, 0, width, height)], caps); allowed = true; } }
                 catch (ArgumentException) { }
-                menu.Items.Add(bar.MenuCommand($"{width} × {height}", () => Resize(width, height), allowed));
+                menu.Items.Add(bar.MenuCommand($"{width} × {height}", () => Resize(width, height), allowed, view.DesktopWidth == width && view.DesktopHeight == height ? "\uE73E" : null));
             }
             menu.Items.Add(new MenuFlyoutSeparator());
+            menu.Items.Add(bar.MenuCommand("Custom resolution…", async () =>
+            {
+                if (display.DisplayCapabilities is not { } capabilities)
+                    throw new InvalidOperationException("Remote resolution is no longer available.");
+                var monitor = await ChooseResolutionAsync(view, capabilities);
+                if (monitor is not null) await Resize(monitor.Width, monitor.Height);
+            }));
             menu.Items.Add(bar.MenuCommand("Match window", async () =>
             {
                 int width = Math.Clamp((int)view.ActualWidth, 200, 8192) & ~1;

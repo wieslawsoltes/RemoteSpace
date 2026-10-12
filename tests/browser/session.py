@@ -58,7 +58,7 @@ async def run(site, output):
             page.on('console',lambda m:messages.append(m.type+': '+m.text))
             page.on('pageerror',lambda e:errors.append(str(e)))
             active, resized = asyncio.Event(), asyncio.Event()
-            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'input_batches':0,'max_input_batch':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
+            metrics={'layout_requests':0,'binary_bytes':0,'surface_packets':0,'input_packets':0,'input_batches':0,'max_input_batch':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
             def received(payload):
                 if isinstance(payload,bytes):
                     if payload.startswith(b'RSU1'):
@@ -74,6 +74,7 @@ async def run(site, output):
             def sent(payload):
                 if isinstance(payload,str):
                     message = json.loads(payload)
+                    if message.get('Type')=='display-layout': metrics['layout_requests']+=1
                     if message.get('Type')=='input': metrics['input_packets']+=1
                     if message.get('Type')=='input-batch':
                         count=len(message.get('Inputs') or [])
