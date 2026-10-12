@@ -15,8 +15,11 @@ public sealed partial class MainPage
     }
     private void RefreshSessionPresentation()
     {
+        if (SessionContent is null) return;
+        var selected = _sessions.FirstOrDefault(s => Sessions.SelectedItem == s.Tab);
+        if (!ReferenceEquals(SessionContent.Content, selected?.Panel)) SessionContent.Content = selected?.Panel;
         foreach (var session in _sessions)
-            session.View.IsPresentationActive = _section == "sessions" && Sessions.SelectedItem == session.Tab;
+            session.View.IsPresentationActive = _section == "sessions" && ReferenceEquals(selected, session);
     }
     private void AddSessionActions(SessionCommandBar bar, OpenSession opened)
     {

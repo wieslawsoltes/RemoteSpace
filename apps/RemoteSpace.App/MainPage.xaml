@@ -71,7 +71,10 @@
                 </StackPanel>
               </Grid>
             </Grid>
-            <TabView VerticalAlignment="Stretch" HorizontalAlignment="Stretch" x:Name="Sessions" Visibility="Collapsed" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
+            <Grid x:Name="SessionPanel" RowDefinitions="Auto,*" Visibility="Collapsed">
+              <TabView x:Name="Sessions" Height="40" HorizontalAlignment="Stretch" IsAddTabButtonVisible="False" TabCloseRequested="CloseSession" SelectionChanged="SessionSelectionChanged" />
+              <ContentControl x:Name="SessionContent" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" AutomationProperties.Name="Active remote session" />
+            </Grid>
             <StackPanel x:Name="SessionsEmpty" Visibility="Collapsed" VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16"><FontIcon Glyph="&#xE8A7;" FontSize="56" /><TextBlock Text="No active sessions" FontSize="22" /><Button Content="Browse devices" HorizontalAlignment="Center" Click="GoToDevices" /></StackPanel>
             <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed"><StackPanel x:Name="SettingsBody" Spacing="16" MaxWidth="720" HorizontalAlignment="Stretch" /></ScrollViewer>
             <StackPanel x:Name="AppsPanel" Visibility="Collapsed" Spacing="16" MaxWidth="650" HorizontalAlignment="Left" Margin="0,24,0,0">

@@ -140,3 +140,21 @@ Seven exact-module Node tests cover duplicate routing, removed menu targets,
 repeat gestures, untouched non-menu input, physical key pairing and cleanup.
 The unchanged real application tests cover device dialogs, held activation,
 clipboard menus, session actions and remote input separately.
+
+## Live surface ownership and semantic geometry
+
+The session strip and live content now have separate visual parents. `TabView`
+continues to own tab selection/closing; one sibling `ContentControl` attaches the
+selected session's existing panel. It does not create a new surface on selection.
+This avoids the pinned host's logically reparented TabView content coordinates:
+the previous built browser exposed the remote surface 32 DIPs above its painted
+origin (the tab strip height). Broad centered-input tests could miss that error;
+the new exact zoom-raster comparison exposed it. No screenshot offsets or pixel
+thresholds were changed to hide the discrepancy. Remote controls no longer sit
+inside the tablist's semantic subtree. Inactive sessions retain decoded pixels
+and their existing controls without active presentation timers. An inactive
+session becoming connected also no longer steals focus from the current section.
+
+Internal framebuffer size snapshots now use a value tuple instead of allocating
+a DesktopSize record for each input batch or local viewport calculation. Public
+session event contracts remain unchanged.

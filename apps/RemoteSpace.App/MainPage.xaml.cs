@@ -51,7 +51,7 @@ public sealed partial class MainPage : Page
         _section = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "devices";
         Heading.Text = _section switch { "favorites" => "Favorites", "sessions" => "Active sessions", "settings" => "Settings", "apps" => "Apps", _ => "Devices" };
         DevicePanel.Visibility = _section is "devices" or "favorites" ? Visibility.Visible : Visibility.Collapsed;
-        Sessions.Visibility = _section == "sessions" ? Visibility.Visible : Visibility.Collapsed;
+        SessionPanel.Visibility = _section == "sessions" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = _section == "settings" ? Visibility.Visible : Visibility.Collapsed;
         AppsPanel.Visibility = _section == "apps" ? Visibility.Visible : Visibility.Collapsed;
         foreach (var session in _sessions) session.View.ReleaseHeldInput();

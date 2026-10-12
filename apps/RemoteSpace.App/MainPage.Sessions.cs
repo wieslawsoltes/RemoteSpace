@@ -53,8 +53,12 @@ public sealed partial class MainPage
             toolbar.CommandFailed += ShowError;
             var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
             panel.Children.Add(toolbar); Grid.SetRow(view, 1); panel.Children.Add(view);
-            var tab = new TabViewItem { Header = profile.Name, Content = panel, IsClosable = true };
-            var opened = new OpenSession(profile, session, view, tab); pendingTab = opened;
+            // Keep the live surface in a real sibling presenter, not TabView's
+            // logically reparented content: that host loses the strip offset in
+            // its browser semantic bounds, corrupting precise input targeting.
+            var tab = new TabViewItem { Header = profile.Name, IsClosable = true };
+            AutomationProperties.SetName(tab, profile.Name);
+            var opened = new OpenSession(profile, session, view, tab, panel); pendingTab = opened;
             toolbar.AddCommand("Fit", "\uE9A6", () => { view.SetScale(null); view.Focus(FocusState.Programmatic); return Task.CompletedTask; });
             AddDisplayControls(session, view, toolbar);
             AddClipboardCommands(toolbar, opened);
@@ -77,7 +81,12 @@ public sealed partial class MainPage
             {
                 if (!_sessions.Contains(opened)) return;
                 UpdateBar(); tab.Header = profile.Name + " · " + s;
-                if (s == SessionState.Active && !opened.RecordedActive) { opened.RecordedActive = true; _ = Mutate(c => { if (c.Find(profile.Id) is not null) c.MarkConnected(profile.Id, DateTimeOffset.UtcNow); }); view.Focus(FocusState.Programmatic); }
+                if (s == SessionState.Active && !opened.RecordedActive)
+                {
+                    opened.RecordedActive = true;
+                    _ = Mutate(c => { if (c.Find(profile.Id) is not null) c.MarkConnected(profile.Id, DateTimeOffset.UtcNow); });
+                    if (_section == "sessions" && Sessions.SelectedItem == tab) view.Focus(FocusState.Programmatic);
+                }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
             });
             _sessions.Add(opened); Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
@@ -93,7 +102,7 @@ public sealed partial class MainPage
             if (token is not null) token.Password = "";
             try
             {
-                if (pendingTab is not null) { _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.Stop.Dispose(); RefreshSessionState(); }
+                if (pendingTab is not null) { _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation(); }
                 try { if (pendingView is not null) await pendingView.DisposeAsync(); }
                 finally { if (pendingSession is not null) await pendingSession.DisposeAsync(); }
             }
@@ -121,7 +130,7 @@ public sealed partial class MainPage
         {
             await opened.View.AttachAsync(null); opened.Stop.Cancel(); await opened.Session.DisconnectAsync(); await opened.Running;
             await opened.View.DisposeAsync(); await opened.Session.DisposeAsync(); opened.Stop.Dispose();
-            _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab); RefreshSessionState();
+            _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab); RefreshSessionState(); RefreshSessionPresentation();
         }
         catch (Exception e) { opened.Closing = false; ShowError(e.Message); }
     }
@@ -130,12 +139,13 @@ public sealed partial class MainPage
         foreach (var opened in _sessions) if (Sessions.SelectedItem != opened.Tab) opened.View.ReleaseHeldInput();
         RefreshSessionPresentation();
     }
-    private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab)
+    private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab, Grid panel)
     {
         public ConnectionProfile Profile { get; } = profile;
         public IRemoteSession Session { get; } = session;
         public RemoteDesktopView View { get; } = view;
         public TabViewItem Tab { get; } = tab;
+        public Grid Panel { get; } = panel;
         public CancellationTokenSource Stop { get; } = new();
         public Task Running { get; set; } = Task.CompletedTask;
         public string? RemoteClipboard { get; set; }

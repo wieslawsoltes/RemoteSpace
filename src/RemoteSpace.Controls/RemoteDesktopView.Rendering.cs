@@ -34,7 +34,7 @@ public sealed partial class RemoteDesktopView
         public long AppliedUpdates { get; private set; }
         public long PresentedFrames { get; private set; }
         public long PixelInvalidations { get; private set; }
-        public DesktopSize SizeSnapshot() { lock (_gate) return new(PixelWidth, PixelHeight); }
+        public (int Width, int Height) SizeSnapshot() { lock (_gate) return (PixelWidth, PixelHeight); }
         public void MarkDirty() => FrameRequested?.Invoke();
         public void Present() => Invalidate();
         public void ConfigureViewport(bool fit, double zoom, double x, double y)
