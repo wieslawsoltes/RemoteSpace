@@ -82,6 +82,8 @@ jobs:
           python3 -m venv /tmp/remote-browser-tests
           /tmp/remote-browser-tests/bin/pip install playwright==1.56.0 pillow==12.0.0
           /tmp/remote-browser-tests/bin/playwright install --with-deps chromium
+      - name: Validate native browser file lifecycle
+        run: /tmp/remote-browser-tests/bin/python tests/browser/file_service_native.py artifacts/browser-validation/file-service
       - name: Validate the actual browser workspace
         run: /tmp/remote-browser-tests/bin/python tests/browser/workspace.py artifacts/browser artifacts/browser-validation
       - uses: actions/upload-artifact@v4
