@@ -88,54 +88,99 @@ public sealed partial class SystemFileAccess : IUserFileAccess
     [JSImport("download", "remotespace.files")]
     private static partial void DownloadBrowserFile(string name, [JSMarshalAs<JSType.Array<JSType.Number>>] byte[] bytes, string mimeType);
     private const string Source = """
-let selecting = false;
+let activeSelection = null;
 const downloads = new Map();
 let downloadBytes = 0;
 export function pick(extension, maximumBytes) {
-    if (selecting) throw new Error('A file selection is already open. Complete or cancel it first.');
+    if (activeSelection) throw new Error('A file selection is already open. Complete or cancel it first.');
     if (!/^\.[a-z0-9]{1,11}$/i.test(extension) || !Number.isInteger(maximumBytes) || maximumBytes < 0 || maximumBytes > 67108864)
         throw new Error('Invalid local file selection limits.');
-    selecting = true;
     return new Promise((resolve, reject) => {
-        const input = document.createElement('input');
-        input.type = 'file'; input.accept = extension; input.style.display = 'none';
-        let finished = false;
+        let input, reader, timer, finished = false, reading = false;
         const finish = (result, error) => {
             if (finished) return;
-            finished = true; clearTimeout(timer); input.remove(); selecting = false;
+            finished = true;
+            if (activeSelection === cancel) activeSelection = null;
+            if (timer !== undefined) clearTimeout(timer);
+            if (input) {
+                input.onchange = input.oncancel = null;
+                // Complete even if a host tears down the DOM during navigation.
+                try { input.remove(); } catch { }
+            }
+            if (reader) {
+                reader.onload = reader.onerror = reader.onabort = null;
+                try { if (reader.readyState === 1) reader.abort(); } catch { }
+            }
             if (error) reject(error); else resolve(result);
         };
-        const timer = setTimeout(() => finish(null, new Error('File selection timed out. Retry the import command.')), 300000);
-        input.oncancel = () => finish({cancelled:true});
-        input.onchange = async () => {
-            try {
-                const file = input.files?.[0];
-                if (!file) { finish({cancelled:true}); return; }
-                if (!file.name.toLowerCase().endsWith(extension.toLowerCase())) throw new Error('The selected file has the wrong extension.');
-                if (file.size > maximumBytes) throw new Error('The selected file exceeds the byte limit.');
-                const bytes = new Uint8Array(await file.arrayBuffer());
-                if (bytes.length > maximumBytes) throw new Error('The selected file exceeds the byte limit.');
-                finish({cancelled:false, name:file.name, bytes});
-            } catch (e) { finish(null, e); }
-        };
-        try { document.body.append(input); input.click(); } catch (e) { finish(null, e); }
+        const cancel = () => finish({cancelled:true});
+        activeSelection = cancel;
+        // Every setup step belongs to this operation, including creation and
+        // timeout setup. A failure must never leave the single-picker guard set.
+        try {
+            input = document.createElement('input');
+            input.type = 'file'; input.accept = extension; input.style.display = 'none';
+            timer = setTimeout(() => finish(null, new Error('File selection timed out. Retry the import command.')), 300000);
+            input.oncancel = cancel;
+            input.onchange = () => {
+                if (finished || reading) return;
+                reading = true;
+                try {
+                    const file = input.files?.[0];
+                    if (!file) { cancel(); return; }
+                    if (!file.name.toLowerCase().endsWith(extension.toLowerCase())) throw new Error('The selected file has the wrong extension.');
+                    if (!Number.isSafeInteger(file.size) || file.size < 0 || file.size > maximumBytes)
+                        throw new Error('The selected file exceeds the byte limit.');
+                    reader = new FileReader();
+                    reader.onload = () => {
+                        if (finished) return;
+                        try {
+                            if (!(reader.result instanceof ArrayBuffer)) throw new Error('The selected file could not be read.');
+                            const bytes = new Uint8Array(reader.result);
+                            if (bytes.length > maximumBytes) throw new Error('The selected file exceeds the byte limit.');
+                            finish({cancelled:false, name:file.name, bytes});
+                        } catch (error) { finish(null, error); }
+                    };
+                    reader.onerror = () => finish(null, new Error('The selected file could not be read. Retry the import command.'));
+                    reader.onabort = cancel;
+                    // FileReader can actually abort an in-progress read. Slice
+                    // bounds the materialized range before allocating its result;
+                    // the extra byte detects a size mismatch without a full read.
+                    reader.readAsArrayBuffer(file.slice(0, maximumBytes + 1));
+                } catch (error) { finish(null, error); }
+            };
+            document.body.append(input); input.click();
+        } catch (error) { finish(null, error); }
     });
 }
 function release(url) {
-    const size = downloads.get(url);
-    if (size !== undefined) { downloads.delete(url); downloadBytes -= size; URL.revokeObjectURL(url); }
+    const download = downloads.get(url);
+    if (download === undefined) return;
+    downloads.delete(url); downloadBytes -= download.size;
+    if (download.timer !== undefined) clearTimeout(download.timer);
+    URL.revokeObjectURL(url);
 }
 export function download(name, bytes, mimeType) {
     if (!(bytes instanceof Uint8Array) || bytes.length > 67108864) throw new Error('The export exceeds its byte limit.');
     if (downloads.size >= 4 || downloadBytes + bytes.length > 67108864) throw new Error('Previous downloads are still being prepared. Retry after they start.');
     const url = URL.createObjectURL(new Blob([bytes], {type:mimeType}));
-    downloads.set(url, bytes.length); downloadBytes += bytes.length;
-    const link = document.createElement('a'); link.href = url; link.download = name;
-    try { document.body.append(link); link.click(); } catch (e) { release(url); throw e; }
-    finally { link.remove(); }
-    setTimeout(() => release(url), 30000);
+    const download = {size:bytes.length, timer:undefined};
+    downloads.set(url, download); downloadBytes += bytes.length;
+    let link;
+    try {
+        try {
+            link = document.createElement('a'); link.href = url; link.download = name;
+            document.body.append(link); link.click();
+        } finally { link?.remove(); }
+        // A synchronous pagehide during a host click may already have released
+        // this URL. Do not resurrect its retention timer after that cleanup.
+        if (downloads.has(url)) download.timer = setTimeout(() => release(url), 30000);
+    } catch (error) { release(url); throw error; }
 }
-globalThis.addEventListener('pagehide', () => { for (const url of downloads.keys()) release(url); });
+globalThis.addEventListener('pagehide', () => {
+    activeSelection?.();
+    for (const url of downloads.keys()) release(url);
+});
 """;
 #endif
 }
