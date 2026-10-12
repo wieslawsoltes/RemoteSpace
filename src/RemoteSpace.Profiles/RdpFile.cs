@@ -20,8 +20,22 @@ public sealed record ConnectionProfile
     public SecurityMode Security { get; init; } = SecurityMode.NetworkLevelAuthentication;
     public string? CertificateSha256 { get; init; }
     public bool RedirectClipboard { get; init; }
-    public ConnectionOptions ToOptions() => new() { Host = Host, Port = Port, Width = Width, Height = Height,
-        BitsPerPixel = BitsPerPixel, Security = Security, CertificateSha256 = CertificateSha256, RedirectClipboard = RedirectClipboard };
+    public bool FitSessionToWindow { get; init; } = true;
+    public double LocalZoom { get; init; } = 1;
+
+    /// <summary>Initial local presentation only; never changes negotiated pixels or server DPI.</summary>
+    public double? GetLocalDisplayScale()
+    {
+        if (!double.IsFinite(LocalZoom) || LocalZoom is < .1 or > 4)
+            throw new ArgumentOutOfRangeException(nameof(LocalZoom), "Local zoom must be between 10% and 400%.");
+        return FitSessionToWindow ? null : LocalZoom;
+    }
+    public ConnectionOptions ToOptions()
+    {
+        _ = GetLocalDisplayScale();
+        return new() { Host = Host, Port = Port, Width = Width, Height = Height,
+            BitsPerPixel = BitsPerPixel, Security = Security, CertificateSha256 = CertificateSha256, RedirectClipboard = RedirectClipboard };
+    }
 }
 
 public sealed record RdpImportResult(ConnectionProfile Profile, IReadOnlyList<string> Warnings);
@@ -40,6 +54,7 @@ public static class RdpFile
     }
     public static RdpImportResult Parse(string text)
     {
+        ArgumentNullException.ThrowIfNull(text);
         if (text.Length > MaxBytes) throw new ArgumentException("RDP file is too large.");
         var values = new Dictionary<string, (char Type, string Value)>(StringComparer.OrdinalIgnoreCase);
         var warnings = new List<string>();
@@ -62,7 +77,7 @@ public static class RdpFile
         int Integer(string key, int fallback)
         {
             if (!values.Remove(key, out var entry)) return fallback;
-            if (entry.Type != 'i' || !int.TryParse(entry.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number))
+            if (entry.Type != 'i' || entry.Value.Contains('\0') || !int.TryParse(entry.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int number))
                 throw new FormatException($"{key} must be an integer.");
             return number;
         }
@@ -72,10 +87,12 @@ public static class RdpFile
         if (nla is not (0 or 1)) throw new FormatException("enablecredsspsupport must be 0 or 1.");
         int clipboard = Integer("redirectclipboard", 0);
         if (clipboard is not (0 or 1)) throw new FormatException("redirectclipboard must be 0 or 1.");
+        int smartSizing = Integer("smart sizing", 0);
+        if (smartSizing is not (0 or 1)) throw new FormatException("smart sizing must be 0 or 1.");
         var profile = new ConnectionProfile { Host = host, Port = port, Name = String("remoteapplicationname", host),
             UserName = String("username"), Domain = String("domain"), Width = Integer("desktopwidth", 1280),
             Height = Integer("desktopheight", 720), BitsPerPixel = Integer("session bpp", 24),
-            Security = nla == 0 ? SecurityMode.Tls : SecurityMode.NetworkLevelAuthentication, RedirectClipboard = clipboard == 1 };
+            Security = nla == 0 ? SecurityMode.Tls : SecurityMode.NetworkLevelAuthentication, RedirectClipboard = clipboard == 1, FitSessionToWindow = smartSizing == 1 };
         foreach (var key in values.Keys.Order(StringComparer.OrdinalIgnoreCase))
             warnings.Add(key.StartsWith("password", StringComparison.OrdinalIgnoreCase) ? "Embedded credentials were discarded." : $"Setting '{key}' is not implemented and was not applied.");
         profile.ToOptions().Validate();
@@ -112,6 +129,6 @@ public static class RdpFile
         profile.ToOptions().Validate();
         static string Safe(string value) => value.IndexOfAny(['\r', '\n', '\0']) < 0 ? value : throw new ArgumentException("RDP strings cannot contain line breaks or NUL.");
         string host = profile.Host.Contains(':') ? $"[{profile.Host}]" : profile.Host;
-        return $"full address:s:{Safe(host)}:{profile.Port}\r\nusername:s:{Safe(profile.UserName)}\r\ndomain:s:{Safe(profile.Domain)}\r\ndesktopwidth:i:{profile.Width}\r\ndesktopheight:i:{profile.Height}\r\nsession bpp:i:{profile.BitsPerPixel}\r\nenablecredsspsupport:i:{(profile.Security == SecurityMode.NetworkLevelAuthentication ? 1 : 0)}\r\nredirectclipboard:i:{(profile.RedirectClipboard ? 1 : 0)}\r\n";
+        return $"full address:s:{Safe(host)}:{profile.Port}\r\nusername:s:{Safe(profile.UserName)}\r\ndomain:s:{Safe(profile.Domain)}\r\ndesktopwidth:i:{profile.Width}\r\ndesktopheight:i:{profile.Height}\r\nsession bpp:i:{profile.BitsPerPixel}\r\nenablecredsspsupport:i:{(profile.Security == SecurityMode.NetworkLevelAuthentication ? 1 : 0)}\r\nredirectclipboard:i:{(profile.RedirectClipboard ? 1 : 0)}\r\nsmart sizing:i:{(profile.FitSessionToWindow ? 1 : 0)}\r\n";
     }
 }

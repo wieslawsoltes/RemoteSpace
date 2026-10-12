@@ -49,6 +49,7 @@ public sealed partial class MainPage
             var credentials = new SessionCredentials(user.Text, password.Password, domain.Text); password.Password = token.Password = "";
             EnsureSessionPresentation();
             var view = new RemoteDesktopView(); pendingView = view; await view.AttachAsync(session);
+            view.SetScale(profile.GetLocalDisplayScale());
             var toolbar = new SessionCommandBar { Title = profile.Name, Status = "Connecting…" };
             toolbar.CommandFailed += ShowError;
             var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });

@@ -76,29 +76,27 @@ public sealed class ProfileEditor : UserControl
     {
         private readonly TextBox _name = Field("Friendly name"), _group = Field("Group"), _user = Field("User name"), _domain = Field("Domain"), _pin = Field("Certificate SHA-256 pin (optional)");
         private readonly NumberBox _port = new() { Header = "Port", Minimum = 1, Maximum = 65535, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
-        private readonly NumberBox _width = new() { Header = "Width", Minimum = 200, Maximum = 8192 }, _height = new() { Header = "Height", Minimum = 200, Maximum = 8192 };
+        private readonly SavedDisplaySettingsEditor _display;
         private readonly ComboBox _security = new() { Header = "Connection security", HorizontalAlignment = HorizontalAlignment.Stretch };
-        private readonly ComboBox _depth = new() { Header = "Color depth", HorizontalAlignment = HorizontalAlignment.Stretch };
         private readonly CheckBox _clipboard = new() { Content = "Allow text clipboard redirection (opt-in)" };
         public Control[] Controls { get; }
         public AdditionalFields(ConnectionProfile profile)
         {
             _name.Text = profile.Name; _group.Text = profile.Group; _user.Text = profile.UserName; _domain.Text = profile.Domain;
-            _pin.Text = profile.CertificateSha256 ?? ""; _port.Value = profile.Port; _width.Value = profile.Width; _height.Value = profile.Height;
+            _pin.Text = profile.CertificateSha256 ?? ""; _port.Value = profile.Port;
+            _display = new SavedDisplaySettingsEditor(profile);
             _security.Items.Add("Network Level Authentication (recommended)");
             _security.Items.Add("TLS (only for hosts explicitly configured without NLA)");
             _security.SelectedIndex = (int)profile.Security;
-            _depth.Items.Add("24-bit"); _depth.Items.Add("16-bit"); _depth.SelectedIndex = profile.BitsPerPixel == 16 ? 1 : 0;
             _clipboard.IsChecked = profile.RedirectClipboard;
-            Controls = [_name, _port, _group, _user, _domain, _width, _height, _depth, _security, _pin, _clipboard];
+            Controls = [_name, _port, _group, _user, _domain, _security, _pin, _clipboard, _display];
         }
-        public ConnectionProfile Read(ConnectionProfile original) => original with
+        public ConnectionProfile Read(ConnectionProfile original) => _display.Read(original with
         {
             Name = _name.Text, Group = _group.Text.Trim(), UserName = _user.Text.Trim(), Domain = _domain.Text.Trim(),
-            Port = Integer(_port.Value, "port"), Width = Integer(_width.Value, "width"), Height = Integer(_height.Value, "height"),
-            BitsPerPixel = _depth.SelectedIndex == 1 ? 16 : 24, Security = (SecurityMode)_security.SelectedIndex,
+            Port = Integer(_port.Value, "port"), Security = (SecurityMode)_security.SelectedIndex,
             CertificateSha256 = string.IsNullOrWhiteSpace(_pin.Text) ? null : _pin.Text.Trim().Replace(":", ""), RedirectClipboard = _clipboard.IsChecked == true
-        };
+        });
     }
 
     private static int Integer(double value, string field) => double.IsFinite(value) && value == Math.Truncate(value) && value <= int.MaxValue && value >= int.MinValue ? (int)value : throw new ArgumentException("Enter a whole number for " + field + ".");
