@@ -60,6 +60,7 @@ async def focus_command(page, target):
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await target.focus()
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await expect(target).to_be_focused(timeout=10000)
 
 async def command(page, name):
     if name in SESSION_MENUS:

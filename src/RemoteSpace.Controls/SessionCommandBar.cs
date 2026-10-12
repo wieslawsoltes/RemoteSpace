@@ -11,6 +11,7 @@ namespace RemoteSpace.Controls;
 public sealed partial class SessionCommandBar : UserControl
 {
     private readonly HashSet<MenuFlyout> _menus = new();
+    private readonly StackPanel _commands = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     public event Action<string>? CommandFailed;
     public string Title { get => TitleText.Text; set { TitleText.Text = value; ToolTipService.SetToolTip(TitleText, value); } }
     public string Status { get => StatusText.Text; set { StatusText.Text = value; AutomationProperties.SetName(StatusText, value); } }
@@ -19,7 +20,14 @@ public sealed partial class SessionCommandBar : UserControl
         InitializeComponent();
         AutomationProperties.SetName(this, "Remote session commands");
         SizeChanged += (_, e) => Identity.Visibility = e.NewSize.Width < 420 ? Visibility.Collapsed : Visibility.Visible;
-        Unloaded += (_, _) => { foreach (var menu in _menus.ToArray()) menu.Hide(); };
+        // Realize buttons under their live geometry owner. Detached construction
+        // must not leave all six semantic bounds at the bar's origin.
+        Loaded += (_, _) => CommandHost.ShowPanel(_commands);
+        Unloaded += (_, _) =>
+        {
+            foreach (var menu in _menus.ToArray()) menu.Hide();
+            CommandHost.ShowPanel(null);
+        };
     }
     public Button AddCommand(string name, string glyph, Func<Task> execute)
     {
@@ -67,6 +75,6 @@ public sealed partial class SessionCommandBar : UserControl
             Padding = new Thickness(8), BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         AutomationProperties.SetAutomationId(button, "remotespace-session-command-" + Guid.NewGuid().ToString("N"));
         AutomationProperties.SetName(button, name); ToolTipService.SetToolTip(button, name);
-        Commands.Children.Add(button); return button;
+        _commands.Children.Add(button); return button;
     }
 }
