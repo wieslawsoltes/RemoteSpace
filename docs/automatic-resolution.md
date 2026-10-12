@@ -96,3 +96,11 @@ presence of these tests does not itself claim they have passed.
 Multi-monitor/window management, native-pixel High DPI, IME/touch/accessibility
 qualification, live Windows NLA/licensing, advanced graphics/UDP, redirected devices,
 cloud services and the other compatibility-matrix gaps remain separate work.
+
+The first real tab-click run exposed a semantic coordinate defect: tab selectors
+were painted inside the dialog but their early detached registrations retained
+an off-window position. The page host now removes its provisional root and
+attaches the retained hierarchy under a live semantic geometry owner on Loaded.
+Unloading removes it cleanly. The click regression still uses the actual native
+tab and additionally requires an in-window hit target; it does not substitute
+keyboard selection, guessed canvas coordinates or modified DOM geometry.

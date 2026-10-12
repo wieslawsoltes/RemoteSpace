@@ -6,6 +6,11 @@ from driver import boot, command, focus_command, navigate
 async def settings_section(page, name):
     tab = page.get_by_role('tab', name=name, exact=True)
     await expect(tab).to_be_visible(timeout=15000)
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    bounds = await tab.bounding_box()
+    viewport = page.viewport_size
+    if not bounds or bounds['x'] < 0 or bounds['y'] < 0 or bounds['x'] + bounds['width'] > viewport['width'] or bounds['y'] + bounds['height'] > viewport['height']:
+        raise AssertionError('A visibly painted settings tab has an out-of-window semantic hit target.')
     await tab.click(force=True)
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
 
