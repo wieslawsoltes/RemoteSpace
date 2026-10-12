@@ -98,6 +98,13 @@ async def validate_session_display(page, metrics, output, passed):
     input_before = metrics['input_packets']
     await horizontal.focus(); await page.keyboard.press('End')
     await vertical.focus(); await page.keyboard.press('End')
+    # Exercise successive independent focus handoffs; a delayed native focus
+    # notification must not feed back and indefinitely oscillate between bars.
+    for _ in range(4):
+        await horizontal.focus(); await page.keyboard.press('Home')
+        await vertical.focus(); await page.keyboard.press('Home')
+        await horizontal.focus(); await page.keyboard.press('End')
+        await vertical.focus(); await page.keyboard.press('End')
     surface, width, height, ox, oy = await compare_view('06-zoom-bottom-right.png', True)
     await asyncio.sleep(.2)
     if metrics['input_packets'] != input_before:

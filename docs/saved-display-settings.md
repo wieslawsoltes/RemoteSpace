@@ -69,3 +69,10 @@ no server resize was sent, and check that reconnect uses the saved preference.
 The exact commit's workflow artifacts distinguish passing execution from source
 implementation. Full Windows/RDS, hardware-GPU, accessibility/IME/platform and
 security qualification remain listed in the compatibility matrix.
+
+
+The pinned Uno browser ComboBox factory omitted the initial disabled state for
+local zoom. The editor publishes its actual IsEnabled state through the public
+automation peer when attached and after changes, without rewriting browser
+attributes or changing input values. The existing browser checks still require
+the control to be disabled while Fit is selected and enabled when it is cleared.

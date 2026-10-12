@@ -10,8 +10,10 @@ using System.Text;
 namespace RemoteSpace.Controls;
 
 /// <summary>Focus compatibility for the pinned Uno Skia browser host's generic
-/// scrollbar peers. Bridges only registered scrollbar focus to the public native
-/// Focus API. No key, value, geometry or private runtime API is intercepted.</summary>
+/// scrollbar peers. Synchronizes only the active owned scrollbar immediately before
+/// native keyboard routing. Focus notifications themselves are never fed back into
+/// the host, which can deliver obsolete notifications asynchronously. No keyboard
+/// event is cancelled, replayed or converted to a value; native ScrollBar handles it.</summary>
 public static partial class BrowserScrollBarFocus
 {
     public static async Task<IDisposable> RegisterAsync(ScrollBar bar)
@@ -59,32 +61,25 @@ public static partial class BrowserScrollBarFocus
     private static partial void Unregister(string id);
     private const string Source = """
 export function bind(root, registrations) {
-    let dispatching = false, scheduled = false, disposed = false, pending;
-    const flush = () => {
-        scheduled = false;
-        const target = pending;
-        pending = undefined;
-        if (disposed || !target || root.ownerDocument.activeElement !== target) return;
+    let dispatching = false, disposed = false;
+    const beforeKey = event => {
+        const target = event.target;
+        if (disposed || dispatching || target !== root.ownerDocument.activeElement ||
+            target?.getAttribute?.('role') !== 'scrollbar') return;
         const callback = registrations.get(target.getAttribute('xamlautomationid'));
         if (!callback) return;
+        // The generic semantic scrollbar has no native focus provider. Resolve
+        // its real focus only when it receives keyboard input, before Uno's
+        // document-level keyboard router. Do not relay focusin: delayed native
+        // focus replies can otherwise generate unbounded cross-scrollbar echoes.
+        // The original key continues untouched through the normal native path.
         dispatching = true;
         try { callback(); } finally { dispatching = false; }
     };
-    const focus = event => {
-        if (dispatching) return;
-        const target = event.target;
-        // Native focus notifications can arrive as a batch for old and new
-        // controls. Relaying each synchronously creates a cross-scrollbar echo
-        // loop. Apply only the final still-focused owned target after the turn.
-        // Focus moving to any other control cancels the pending relay.
-        pending = target?.getAttribute?.('role') === 'scrollbar' &&
-            registrations.has(target.getAttribute('xamlautomationid')) ? target : undefined;
-        if (pending && !scheduled) { scheduled = true; queueMicrotask(flush); }
-    };
-    root.addEventListener('focusin', focus);
+    root.addEventListener('keydown', beforeKey);
     return () => {
-        disposed = true; pending = undefined;
-        root.removeEventListener('focusin', focus);
+        disposed = true;
+        root.removeEventListener('keydown', beforeKey);
     };
 }
 const registrations = new Map();

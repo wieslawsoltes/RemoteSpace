@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using RemoteSpace.Profiles;
 
@@ -35,6 +36,11 @@ public sealed partial class SavedDisplaySettingsEditor : UserControl
         _fit.IsChecked = profile.FitSessionToWindow;
         _zoom.SelectedItem = _scales.First(s => s.Scale == profile.LocalZoom);
         _zoom.IsEnabled = !_fit.IsChecked.GetValueOrDefault();
+        // The pinned browser ComboBox factory omits the initial enabled state.
+        // Publish its actual state through the native automation peer after the
+        // control is attached, and on changes. No DOM attributes are rewritten.
+        _zoom.Loaded += (_, _) => PublishZoomEnabledState();
+        _zoom.IsEnabledChanged += (_, _) => { if (_zoom.IsLoaded) PublishZoomEnabledState(); };
         _fit.Checked += (_, _) => _zoom.IsEnabled = false;
         _fit.Unchecked += (_, _) => _zoom.IsEnabled = true;
         _body.Children.Add(new TextBlock { Text = "Display settings", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -54,6 +60,12 @@ public sealed partial class SavedDisplaySettingsEditor : UserControl
         _body.Children.Add(reset);
         Loaded += (_, _) => SettingsHost.ShowPanel(_body);
         Unloaded += (_, _) => SettingsHost.ShowPanel(null);
+    }
+
+    private void PublishZoomEnabledState()
+    {
+        var peer = FrameworkElementAutomationPeer.FromElement(_zoom) ?? FrameworkElementAutomationPeer.CreatePeerForElement(_zoom);
+        peer?.RaisePropertyChangedEvent(AutomationElementIdentifiers.IsEnabledProperty, !_zoom.IsEnabled, _zoom.IsEnabled);
     }
 
     public void RestoreDefaults()

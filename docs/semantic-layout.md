@@ -49,3 +49,30 @@ keyboard router. Only buttons bearing the generated RemoteSpace session-command
 AutomationId are affected. Other keys, unowned buttons and canvas input retain
 normal routing. Repeats and a release after focus changes cannot activate a
 second command. No command implementation, DOM value or private API is replaced.
+
+
+## Input-boundary scrollbar synchronization
+
+The post-merge main run exposed a remaining asynchronous focus echo: native DOM
+focus requests for horizontal and vertical bars arrived on different turns and
+the old focusin relay responded to each by focusing the native bar again. A
+microtask guard only coalesced one turn; it did not bound the cross-turn loop.
+The regression now models these independent delayed replies and reproduces an
+unbounded queue with the previous adapter.
+
+The adapter synchronizes the currently focused, explicitly registered scrollbar
+at its keyboard-input boundary, before Uno's document-level keyboard router.
+Focus-only notifications trigger no callback or timer. The original key is not
+cancelled, rewritten, replayed or converted to a value; the native scrollbar
+still performs its normal operation. Non-scrollbar input and off-focus events
+are untouched. This avoids sustaining asynchronous focus echoes while ensuring
+local scrollbar keys cannot act on a previously focused remote desktop. Pure
+DOM focus does not itself move XAML focus; synchronization occurs on the first
+keyboard event. Native pointer navigation and automation range providers retain
+their existing paths. Broader assistive-technology qualification remains open.
+
+Tests cover delayed cross-bar replies, 1,000 alternating input handoffs, 10,000
+focus-only notifications with no scheduled work, callback reentrancy/errors,
+registration/disposal bounds and untouched unrelated input. Browser zoom coverage
+performs repeated real Home/End focus handoffs before checking original remote
+pixels, no outgoing remote keys, pointer coordinates and subsequent toolbar focus.
