@@ -22,7 +22,7 @@ public sealed partial class RemoteDesktopView
     {
         KeyDown += (_, e) =>
         {
-            if (_session?.State != SessionState.Active) return;
+            if (_session?.State != SessionState.Active || IsScrollBarInput(e.OriginalSource)) return;
             if ((uint)e.Key == 0x13) { QueueMany(InputState.PauseKey()); e.Handled = true; return; }
 #if __WASM__
             // Uno's browser KeyStatus is not implemented; its key mapping still supplies virtual keys.
@@ -32,13 +32,13 @@ public sealed partial class RemoteDesktopView
 #endif
             if (key is { } value) { Queue(value); e.Handled = true; }
         };
-        KeyUp += (_, e) => { if (_input.KeyUp((uint)e.Key) is { } value) { Queue(value); e.Handled = true; } };
+        KeyUp += (_, e) => { if (IsScrollBarInput(e.OriginalSource)) return; if (_input.KeyUp((uint)e.Key) is { } value) { Queue(value); e.Handled = true; } };
         LostFocus += (_, _) => ReleaseHeldInput();
         PointerCaptureLost += (_, _) => ReleaseHeldInput();
         PointerPressed += (_, e) =>
         {
-            if (_session?.State != SessionState.Active) return;
-            var p = e.GetCurrentPoint(this); var mapped = _canvas.Map(p.Position, false);
+            if (_session?.State != SessionState.Active || IsScrollBarInput(e.OriginalSource)) return;
+            var p = e.GetCurrentPoint(_canvas); var mapped = _canvas.Map(p.Position, false);
             if (mapped is not { } point) return;
             Focus(FocusState.Pointer); CapturePointer(e.Pointer);
             ushort button = p.Properties.PointerUpdateKind switch
@@ -54,7 +54,8 @@ public sealed partial class RemoteDesktopView
         };
         PointerReleased += (_, e) =>
         {
-            var p = e.GetCurrentPoint(this); var mapped = _canvas.Map(p.Position, true);
+            if (IsScrollBarInput(e.OriginalSource)) return;
+            var p = e.GetCurrentPoint(_canvas); var mapped = _canvas.Map(p.Position, true);
             if (mapped is { } point)
             {
                 ushort button = p.Properties.PointerUpdateKind switch
@@ -72,14 +73,14 @@ public sealed partial class RemoteDesktopView
         };
         PointerMoved += (_, e) =>
         {
-            if (_session?.State != SessionState.Active) return;
-            if (_canvas.Map(e.GetCurrentPoint(this).Position, _input.HeldButtonCount > 0) is { } point)
+            if (_session?.State != SessionState.Active || IsScrollBarInput(e.OriginalSource)) return;
+            if (_canvas.Map(e.GetCurrentPoint(_canvas).Position, _input.HeldButtonCount > 0) is { } point)
             { _canvas.MoveCursor(point.X, point.Y); Queue(_input.Move(point.X, point.Y)); e.Handled = true; }
         };
         PointerWheelChanged += (_, e) =>
         {
-            if (_session?.State != SessionState.Active) return;
-            var p = e.GetCurrentPoint(this);
+            if (_session?.State != SessionState.Active || IsScrollBarInput(e.OriginalSource)) return;
+            var p = e.GetCurrentPoint(_canvas);
             bool horizontal = p.Properties.IsHorizontalMouseWheel;
             if (horizontal && (_session as IRemoteInputCapabilities)?.InputCapabilities?.HorizontalWheel != true)
             { InputError?.Invoke("The remote server does not support horizontal scrolling."); e.Handled = true; return; }

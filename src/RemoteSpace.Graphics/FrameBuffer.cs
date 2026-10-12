@@ -67,13 +67,35 @@ public readonly record struct Viewport(double X, double Y, double Width, double 
 {
     public static Viewport Fit(double areaWidth, double areaHeight, int pixelWidth, int pixelHeight)
     {
-        if (areaWidth <= 0 || areaHeight <= 0 || pixelWidth <= 0 || pixelHeight <= 0) return default;
+        if (!double.IsFinite(areaWidth) || !double.IsFinite(areaHeight) || areaWidth <= 0 || areaHeight <= 0 || pixelWidth <= 0 || pixelHeight <= 0) return default;
         double scale = Math.Min(areaWidth / pixelWidth, areaHeight / pixelHeight);
         return new((areaWidth - pixelWidth * scale) / 2, (areaHeight - pixelHeight * scale) / 2, pixelWidth * scale, pixelHeight * scale);
     }
+    /// <summary>Maps only the visible host area. Captured drags clamp to its
+    /// intersection with the image, never to off-screen remote pixels.</summary>
+    public (ushort X, ushort Y)? MapVisible(double x, double y, int desktopWidth, int desktopHeight,
+        double areaWidth, double areaHeight, bool clamp = false)
+    {
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(areaWidth) || !double.IsFinite(areaHeight) ||
+            !double.IsFinite(X) || !double.IsFinite(Y) || !double.IsFinite(Width) || !double.IsFinite(Height) ||
+            areaWidth <= 0 || areaHeight <= 0 || Width <= 0 || Height <= 0) return null;
+        double left = Math.Max(0, X), top = Math.Max(0, Y);
+        double right = Math.Min(areaWidth, X + Width), bottom = Math.Min(areaHeight, Y + Height);
+        if (right <= left || bottom <= top) return null;
+        if (clamp)
+        {
+            x = Math.Clamp(x, left, right - Math.Min(1e-6, (right - left) / 2));
+            y = Math.Clamp(y, top, bottom - Math.Min(1e-6, (bottom - top) / 2));
+        }
+        else if (x < left || y < top || x >= right || y >= bottom) return null;
+        return Map(x, y, desktopWidth, desktopHeight);
+    }
     public (ushort X, ushort Y)? Map(double x, double y, int desktopWidth, int desktopHeight)
     {
-        if (Width <= 0 || Height <= 0 || x < X || y < Y || x >= X + Width || y >= Y + Height) return null;
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(X) || !double.IsFinite(Y) ||
+            !double.IsFinite(Width) || !double.IsFinite(Height) || Width <= 0 || Height <= 0 ||
+            desktopWidth is < 1 or > 65535 || desktopHeight is < 1 or > 65535 ||
+            x < X || y < Y || x >= X + Width || y >= Y + Height) return null;
         return ((ushort)Math.Clamp((int)((x - X) * desktopWidth / Width), 0, desktopWidth - 1),
                 (ushort)Math.Clamp((int)((y - Y) * desktopHeight / Height), 0, desktopHeight - 1));
     }

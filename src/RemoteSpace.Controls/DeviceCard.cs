@@ -22,7 +22,14 @@ public sealed partial class DeviceCard : UserControl
     public DateTimeOffset? LastConnected { get => (DateTimeOffset?)GetValue(LastConnectedProperty); set => SetValue(LastConnectedProperty, value); }
     public bool IsList { get => (bool)GetValue(IsListProperty); set => SetValue(IsListProperty, value); }
     public event EventHandler<DeviceActionEventArgs>? ActionRequested;
-    public DeviceCard() { InitializeComponent(); HorizontalAlignment = HorizontalAlignment.Stretch; Update(); }
+    private bool _openingMenu;
+    private MenuFlyout? _activeMenu;
+    public DeviceCard()
+    {
+        InitializeComponent(); HorizontalAlignment = HorizontalAlignment.Stretch;
+        Unloaded += (_, _) => _activeMenu?.Hide();
+        Update();
+    }
     private static void Changed(DependencyObject sender, DependencyPropertyChangedEventArgs _) => ((DeviceCard)sender).Update();
     private void Update()
     {
@@ -48,16 +55,36 @@ public sealed partial class DeviceCard : UserControl
     }
     private void ConnectClicked(object sender, RoutedEventArgs e) => Request("connect");
     private void FavoriteClicked(object sender, RoutedEventArgs e) => Request("favorite");
-    private void MoreClicked(object sender, RoutedEventArgs e)
+    private async void MoreClicked(object sender, RoutedEventArgs e)
     {
-        // Allocate menus only when requested, not for every virtualized item.
-        var menu = new MenuFlyout();
-        foreach (var (label, action) in new[] { ("Connect", "connect"), ("Edit", "edit"), ("Duplicate", "duplicate"), ("View details", "details"),
-                     (Profile?.Favorite == true ? "Remove from favorites" : "Add to favorites", "favorite"), ("Export .rdp", "export"), ("Delete", "delete") })
+        if (_openingMenu) return;
+        _openingMenu = true;
+        try
         {
-            var item = new MenuFlyoutItem { Text = label }; item.Click += (_, _) => Request(action); menu.Items.Add(item);
+            // Keep the initiating keyup on its button before focus enters the
+            // flyout. Otherwise a later dialog can restore a still-pressed button.
+            await CommandActivation.WaitForReleaseAsync(this);
+            _activeMenu?.Hide();
+            // Allocate menus only when requested, not for every virtualized item.
+            var menu = new MenuFlyout();
+            foreach (var (label, action) in new[] { ("Connect", "connect"), ("Edit", "edit"), ("Duplicate", "duplicate"), ("View details", "details"),
+                         (Profile?.Favorite == true ? "Remove from favorites" : "Add to favorites", "favorite"), ("Export .rdp", "export"), ("Delete", "delete") })
+            {
+                var item = new MenuFlyoutItem { Text = label }; item.Click += (_, _) => Request(action); menu.Items.Add(item);
+            }
+            _activeMenu = menu;
+            menu.Closed += (_, _) => { if (ReferenceEquals(_activeMenu, menu)) _activeMenu = null; };
+            AutomationProperties.SetHelpText(MoreButton, "Open device commands");
+            ToolTipService.SetToolTip(MoreButton, "Open device commands");
+            menu.ShowAt(MoreButton);
         }
-        menu.ShowAt(MoreButton);
+        catch (OperationCanceledException) when (!IsLoaded) { }
+        catch (Exception error)
+        {
+            AutomationProperties.SetHelpText(MoreButton, error.Message);
+            ToolTipService.SetToolTip(MoreButton, error.Message);
+        }
+        finally { _openingMenu = false; }
     }
     private void Request(string action) { if (Profile is { } profile) ActionRequested?.Invoke(this, new(profile, action)); }
 }

@@ -22,7 +22,9 @@ public sealed partial class RemoteDesktopView
         private SKBitmap? _bitmap, _cursor;
         private RemoteCursor? _cursorInfo;
         private byte[]? _resolvedCursor;
-        private int _cursorX, _cursorY, _dirty;
+        private int _cursorX, _cursorY;
+        private double _offsetX, _offsetY, _presentedWidth, _presentedHeight;
+        public event Action? FrameRequested;
         private bool _pixelsChanged;
         private Viewport _viewport;
         public bool Fit { get; set; } = true;
@@ -32,9 +34,19 @@ public sealed partial class RemoteDesktopView
         public long AppliedUpdates { get; private set; }
         public long PresentedFrames { get; private set; }
         public long PixelInvalidations { get; private set; }
-        public DesktopSize SizeSnapshot() { lock (_gate) return new(PixelWidth, PixelHeight); }
-        public void MarkDirty() => Interlocked.Exchange(ref _dirty, 1);
-        public void PresentIfDirty() { if (Interlocked.Exchange(ref _dirty, 0) != 0) Invalidate(); }
+        public (int Width, int Height) SizeSnapshot() { lock (_gate) return (PixelWidth, PixelHeight); }
+        public void MarkDirty() => FrameRequested?.Invoke();
+        public void Present() => Invalidate();
+        public void ConfigureViewport(bool fit, double zoom, double x, double y)
+        {
+            lock (_gate)
+            {
+                Fit = fit; Zoom = zoom; _offsetX = x; _offsetY = y;
+                // Do not forward input with a transform which has not been painted.
+                _viewport = default;
+            }
+            MarkDirty();
+        }
         public void Clear()
         {
             lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; _resolvedCursor = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = PixelInvalidations = 0; _viewport = default; _pixelsChanged = false; }
@@ -83,13 +95,21 @@ public sealed partial class RemoteDesktopView
             }
             MarkDirty();
         }
-        public void MoveCursor(int x, int y) { lock (_gate) { _cursorX = x; _cursorY = y; } MarkDirty(); }
+        public void MoveCursor(int x, int y)
+        {
+            bool repaint;
+            lock (_gate)
+            {
+                repaint = _cursor is not null && (_cursorX != x || _cursorY != y);
+                _cursorX = x; _cursorY = y;
+            }
+            if (repaint) MarkDirty();
+        }
         public (ushort X, ushort Y)? Map(Point point, bool clamp)
         {
             lock (_gate)
             {
-                if (clamp && _viewport.Width > 0 && _viewport.Height > 0) point = new(Math.Clamp(point.X, _viewport.X, _viewport.X + _viewport.Width - .001), Math.Clamp(point.Y, _viewport.Y, _viewport.Y + _viewport.Height - .001));
-                return _viewport.Map(point.X, point.Y, PixelWidth, PixelHeight);
+                return _viewport.MapVisible(point.X, point.Y, PixelWidth, PixelHeight, _presentedWidth, _presentedHeight, clamp);
             }
         }
         private void PublishPixels()
@@ -103,7 +123,8 @@ public sealed partial class RemoteDesktopView
             lock (_gate)
             {
                 if (_bitmap is null) return;
-                _viewport = Fit ? Viewport.Fit(area.Width, area.Height, PixelWidth, PixelHeight) : new Viewport((area.Width - PixelWidth * Zoom) / 2, (area.Height - PixelHeight * Zoom) / 2, PixelWidth * Zoom, PixelHeight * Zoom);
+                _presentedWidth = area.Width; _presentedHeight = area.Height;
+                _viewport = DesktopViewportLayout.Calculate(area.Width, area.Height, PixelWidth, PixelHeight, Fit, Zoom, _offsetX, _offsetY, 0).Image;
                 var rect = new SKRect((float)_viewport.X, (float)_viewport.Y, (float)(_viewport.X + _viewport.Width), (float)(_viewport.Y + _viewport.Height));
                 PublishPixels(); canvas.DrawBitmap(_bitmap, rect);
                 if (_cursor is not null && _cursorInfo is { } cursor)

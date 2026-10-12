@@ -32,6 +32,8 @@ public sealed partial class MainPage : Page
         {
             if (_ready || _loading) return;
             _loading = true;
+            try { await BrowserSemanticInput.InitializeAsync(); }
+            catch (Exception e) { ShowError("Keyboard accessibility initialization failed: " + e.Message); }
             try { await _textClipboard.InitializeAsync(); }
             catch (Exception e) { ShowError("Local clipboard unavailable: " + e.Message); }
             try { await _fileAccess.InitializeAsync(); }
@@ -49,7 +51,7 @@ public sealed partial class MainPage : Page
         _section = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "devices";
         Heading.Text = _section switch { "favorites" => "Favorites", "sessions" => "Active sessions", "settings" => "Settings", "apps" => "Apps", _ => "Devices" };
         DevicePanel.Visibility = _section is "devices" or "favorites" ? Visibility.Visible : Visibility.Collapsed;
-        Sessions.Visibility = _section == "sessions" ? Visibility.Visible : Visibility.Collapsed;
+        SessionPanel.Visibility = _section == "sessions" ? Visibility.Visible : Visibility.Collapsed;
         SettingsPanel.Visibility = _section == "settings" ? Visibility.Visible : Visibility.Collapsed;
         AppsPanel.Visibility = _section == "apps" ? Visibility.Visible : Visibility.Collapsed;
         foreach (var session in _sessions) session.View.ReleaseHeldInput();
@@ -103,7 +105,7 @@ public sealed partial class MainPage : Page
         {
             var dialog = AccessibleInfoDialog.Create(title, content);
             dialog.XamlRoot = XamlRoot;
-            await dialog.ShowAsync();
+            await CommandActivation.ShowDialogAsync(this, dialog);
         }
         catch (Exception e) { ShowError(e.Message); }
         finally { _dialogOpen = false; }
@@ -111,7 +113,11 @@ public sealed partial class MainPage : Page
     private async Task<bool> Confirm(string title, string message, string action)
     {
         if (_dialogOpen) return false; _dialogOpen = true;
-        try { return await new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = message, PrimaryButtonText = action, CloseButtonText = "Cancel" }.ShowAsync() == ContentDialogResult.Primary; }
+        try
+        {
+            var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = title, Content = message, PrimaryButtonText = action, CloseButtonText = "Cancel" };
+            return await CommandActivation.ShowDialogAsync(this, dialog) == ContentDialogResult.Primary;
+        }
         finally { _dialogOpen = false; }
     }
     private void ApplyTheme(WorkspaceTheme theme) => RequestedTheme = theme switch { WorkspaceTheme.Light => ElementTheme.Light, WorkspaceTheme.Dark => ElementTheme.Dark, _ => ElementTheme.Default };

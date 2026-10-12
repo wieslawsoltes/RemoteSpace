@@ -4,12 +4,19 @@ import json
 import re
 import uuid
 from playwright.async_api import expect
-from driver import boot, command, edit, navigate
+from driver import boot, command, edit, navigate, focus_command
 
 async def validate_workspace_ui(page, output, passed):
     async def action(name, item):
+        await expect(page.get_by_role('menuitem')).to_have_count(0)
         await command(page, 'Options for ' + name)
-        await page.get_by_role('menuitem', name=item, exact=True).press('Enter', delay=80)
+        target = page.get_by_role('menuitem', name=item, exact=True)
+        await expect(target).to_be_visible()
+        await focus_command(page, target)
+        # This command can remove its own semantic node on keydown. A locator
+        # retry risks replaying the command; keep one real keydown/keyup sequence.
+        await page.keyboard.press('Enter', delay=80)
+        await expect(page.get_by_role('menuitem')).to_have_count(0)
     await navigate(page, 'Devices')
     await command(page, 'Add PC')
     await edit(page, 'PC address', 'quick.test.invalid')
@@ -32,13 +39,30 @@ async def validate_workspace_ui(page, output, passed):
         raise AssertionError('Exported RDP file does not describe the chosen saved device')
     passed('Export command downloads an actual credential-free RDP profile')
     await command(page, 'List view')
-    await action('quick.test.invalid (copy)', 'Edit')
+    await expect(page.get_by_role('button', name='List view', exact=True)).to_have_attribute('aria-pressed', 'true')
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    # Hold the real activation key through multiple presentation turns. The
+    # newly opened editor must not consume its launching gesture as Save.
+    await command(page, 'Options for quick.test.invalid (copy)')
+    edit_item = page.get_by_role('menuitem', name='Edit', exact=True)
+    await focus_command(page, edit_item)
+    await page.keyboard.down('Enter')
+    await page.wait_for_timeout(240)
+    await page.keyboard.up('Enter')
+    await expect(page.get_by_role('menuitem')).to_have_count(0)
     await expect(page.get_by_label('Friendly name', exact=True)).to_be_visible(timeout=15000)
     await expect(page.get_by_role('button', name='Save', exact=True)).to_be_attached()
     await edit(page, 'Friendly name', 'Build server')
     await edit(page, 'Group', 'Lab')
-    await command(page, 'Save')
+    save = page.get_by_role('button', name='Save', exact=True)
+    await focus_command(page, save)
+    await page.keyboard.down('Enter')
+    await page.wait_for_timeout(240)
+    await expect(save).to_be_visible()
+    await page.keyboard.up('Enter')
     await expect(page.get_by_role('button', name='Connect to Build server', exact=True)).to_be_attached(timeout=30000)
+    await expect(page.get_by_role('menuitem')).to_have_count(0)
+    passed('Opening and saving Edit each consume their own held activation gesture without reopening a menu')
     await action('Build server', 'Delete')
     await command(page, 'Cancel')
     await expect(page.get_by_role('button', name='Connect to Build server', exact=True)).to_be_attached()

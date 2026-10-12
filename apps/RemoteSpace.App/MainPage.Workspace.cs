@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using RemoteSpace.Controls;
 using RemoteSpace.Core;
@@ -59,11 +60,13 @@ public sealed partial class MainPage
             DeviceGridScroll.Visibility = settings.ListView ? Visibility.Collapsed : Visibility.Visible;
             DeviceListScroll.Visibility = settings.ListView ? Visibility.Visible : Visibility.Collapsed;
             DeviceCount.Text = (_section == "favorites" ? "Favorite devices" : _group ?? "Saved devices") + $" ({items.Count})";
+            AutomationProperties.SetName(DeviceCount, DeviceCount.Text);
             Empty.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             bool filtered = !string.IsNullOrEmpty(Search.Text) || _group is not null;
             bool favorites = _section == "favorites" && !filtered;
             EmptyTitle.Text = filtered ? "No matching devices" : favorites ? "Mark PCs as favorites" : "Add a remote PC";
             EmptyDescription.Text = filtered ? "Try another name, address or group." : favorites ? "Use the star on a device card to keep your PCs within easy reach." : "Connect to your PCs from one place. Add a PC or import an .rdp file to get started.";
+            AutomationProperties.SetName(EmptyTitle, EmptyTitle.Text); AutomationProperties.SetName(EmptyDescription, EmptyDescription.Text);
             EmptyIcon.Glyph = favorites ? "\uE734" : "\uE7F4";
             FirstPc.Visibility = !filtered && !favorites ? Visibility.Visible : Visibility.Collapsed;
             ClearFilters.Visibility = filtered ? Visibility.Visible : Visibility.Collapsed;
@@ -98,11 +101,6 @@ public sealed partial class MainPage
         ConnectionProfile? connectAfter = null;
         try
         {
-            // The Skia menu's semantic keydown invokes this command before the
-            // same event bubbles to native keyboard routing. Opening a default-
-            // Save dialog synchronously lets that Enter immediately save it.
-            // Reserve the dialog slot now, but create it on the next UI turn.
-            await Task.Yield();
             var editor = new ProfileEditor(original); var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
             var content = new StackPanel { Spacing = 12 }; content.Children.Add(error); content.Children.Add(editor);
             var dialog = new ContentDialog { Title = original is null ? "Add a PC" : "Edit PC", Content = content, PrimaryButtonText = original is null ? "Add" : "Save", SecondaryButtonText = original is null ? "Add & connect" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot };
@@ -113,7 +111,7 @@ public sealed partial class MainPage
                 catch (Exception ex) { e.Cancel = true; error.Text = ex.Message; }
             }
             dialog.PrimaryButtonClick += Validate; dialog.SecondaryButtonClick += Validate;
-            var action = await dialog.ShowAsync();
+            var action = await CommandActivation.ShowDialogAsync(this, dialog);
             if (action != ContentDialogResult.None && result is not null && await Mutate(c => c.Upsert(result)) && action == ContentDialogResult.Secondary) connectAfter = result;
         }
         catch (Exception e) { ShowError(e.Message); }

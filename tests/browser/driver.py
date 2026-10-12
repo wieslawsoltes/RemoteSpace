@@ -42,10 +42,40 @@ async def boot(page, url=None):
     finally:
         page.remove_listener('console', console)
 
+SESSION_MENUS = {
+    'Pause updates': 'Session actions', 'Resume updates': 'Session actions', 'Refresh desktop': 'Session actions',
+    'Ctrl+Alt+Del': 'Session actions', 'Capture': 'Session actions', 'Connection information': 'Session actions',
+    'Send clipboard': 'Clipboard', 'Copy remote text': 'Clipboard',
+    '100%': 'Display settings', '125%': 'Display settings', '150%': 'Display settings', '200%': 'Display settings',
+    '300%': 'Display settings', '400%': 'Display settings', 'Zoom in': 'Display settings', 'Zoom out': 'Display settings',
+    'Top left': 'Display settings', 'Bottom right': 'Display settings', 'Fit to window': 'Display settings'
+}
+
+async def focus_command(page, target):
+    # Popup close/open and repeater recycling can reassign native focus after a
+    # semantic peer appears. Require usable layout, let the current transition
+    # settle, then focus the real control before dispatching one physical key.
+    await expect(target).to_be_visible(timeout=30000)
+    await expect(target).to_be_enabled(timeout=10000)
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await target.focus()
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+
 async def command(page, name):
+    if name in SESSION_MENUS:
+        group = page.get_by_role('button', name=SESSION_MENUS[name], exact=True)
+        await expect(group).to_be_visible(timeout=30000)
+        await focus_command(page, group)
+        await page.keyboard.press('Enter')
+        item = page.get_by_role('menuitem', name=name, exact=True)
+        await expect(item).to_be_enabled(timeout=10000)
+        await focus_command(page, item)
+        await page.keyboard.press('Enter')
+        await expect(page.get_by_role('menuitem')).to_have_count(0)
+        return
     button = page.get_by_role('button', name=name, exact=True)
-    await expect(button).to_be_attached(timeout=30000)
-    await button.press('Enter')
+    await focus_command(page, button)
+    await page.keyboard.press('Enter')
 
 async def edit(page, label, value):
     # Do not fill() the semantic HTML proxy: it bypasses Uno's native selection.
@@ -65,12 +95,21 @@ async def edit(page, label, value):
             await asyncio.sleep(.02)
     stage = 'resolve input'
     try:
+        expansion = page.locator('button[xamlautomationid="ExpanderToggleButton"]')
+        # Opening is intentionally deferred until its triggering key is released.
+        # Wait for the real field OR expansion control to exist before deciding
+        # whether the user needs to expand the additional settings.
+        until = time.monotonic() + 30
+        while not await box.count() and not await expansion.count():
+            if time.monotonic() >= until:
+                raise AssertionError('The requested input or its expander did not appear')
+            await asyncio.sleep(.02)
         bounds = await box.bounding_box() if await box.count() else None
         if not bounds or bounds["width"] <= 0 or bounds["height"] <= 0:
-            expansion = page.locator('button[xamlautomationid="ExpanderToggleButton"]')
             if await expansion.count() and await expansion.get_attribute('aria-pressed') != 'true':
                 stage = 'expand additional settings'
-                await expansion.press('Space')
+                await focus_command(page, expansion)
+                await page.keyboard.press('Space')
                 await expect(expansion).to_have_attribute('aria-pressed', 'true')
         # A semantic peer is not usable until it has positive layout bounds.
         stage = 'wait for input layout'

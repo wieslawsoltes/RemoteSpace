@@ -1,45 +1,27 @@
 using Microsoft.UI.Xaml.Controls;
+using RemoteSpace.Controls;
 using RemoteSpace.Core;
 
 namespace RemoteSpace.App;
 
 public sealed partial class MainPage
 {
-    private void AddGraphicsOutputControls(IRemoteSession session, RemoteSpace.Controls.RemoteDesktopView view, StackPanel toolbar)
+    private void AddGraphicsOutputControls(OpenSession opened, SessionCommandBar bar, MenuFlyout menu)
     {
-        if (session is not IRemoteGraphicsOutput output) return;
-        bool busy = false;
-        var pause = new Button { Content = "Pause updates", IsEnabled = false };
-        var refresh = new Button { Content = "Refresh desktop", IsEnabled = false };
-        void Update()
+        if (opened.Session is not IRemoteGraphicsOutput output) return;
+        bool active = opened.Session.State == SessionState.Active;
+        menu.Items.Add(bar.MenuCommand(output.OutputEnabled ? "Pause updates" : "Resume updates", async () =>
         {
-            view.IsEnabled = output.OutputEnabled;
-            pause.Content = output.OutputEnabled ? "Pause updates" : "Resume updates";
-            pause.IsEnabled = !busy && session.State == SessionState.Active && output.GraphicsOutputCapabilities is { SuppressOutput: true };
-            refresh.IsEnabled = !busy && output.OutputEnabled && session.State == SessionState.Active && output.GraphicsOutputCapabilities is { RefreshRect: true };
-        }
-        async Task Execute(bool toggle)
+            bool enable = !output.OutputEnabled;
+            if (!enable) await opened.View.ReleaseHeldInputAsync(opened.Stop.Token);
+            await output.SetOutputEnabledAsync(enable, opened.Stop.Token);
+            opened.View.IsEnabled = output.OutputEnabled;
+            Status.Text = "Graphics-output change requested. Remote programs continue running.";
+        }, active && output.GraphicsOutputCapabilities is { SuppressOutput: true }));
+        menu.Items.Add(bar.MenuCommand("Refresh desktop", async () =>
         {
-            if (busy) return;
-            busy = true; Update();
-            try
-            {
-                if (toggle)
-                {
-                    if (output.OutputEnabled) await view.ReleaseHeldInputAsync();
-                    await output.SetOutputEnabledAsync(!output.OutputEnabled);
-                }
-                else await output.RequestRefreshAsync();
-                Status.Text = toggle ? "Graphics-output change requested. Remote programs continue running." : "Desktop refresh requested.";
-            }
-            catch (Exception e) { ShowError(e.Message); }
-            finally { busy = false; Update(); }
-        }
-        pause.Click += async (_, _) => await Execute(true);
-        refresh.Click += async (_, _) => await Execute(false);
-        session.StateChanged += _ => DispatcherQueue.TryEnqueue(Update);
-        output.GraphicsOutputCapabilitiesChanged += _ => DispatcherQueue.TryEnqueue(Update);
-        output.OutputEnabledChanged += _ => DispatcherQueue.TryEnqueue(Update);
-        toolbar.Children.Add(pause); toolbar.Children.Add(refresh); Update();
+            await output.RequestRefreshAsync(opened.Stop.Token);
+            Status.Text = "Desktop refresh requested.";
+        }, active && output.OutputEnabled && output.GraphicsOutputCapabilities is { RefreshRect: true }));
     }
 }

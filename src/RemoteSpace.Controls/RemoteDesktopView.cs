@@ -40,20 +40,26 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
     public long PresentedFrames => _canvas.PresentedFrames;
     public long PixelInvalidations => _canvas.PixelInvalidations;
     public string Renderer => "Uno Skia compositor (hardware acceleration depends on the host)";
-    public bool FitToWindow { get => _canvas.Fit; set { _canvas.Fit = value; _canvas.MarkDirty(); } }
-    public double Zoom { get => _canvas.Zoom; set { if (!double.IsFinite(value) || value is < .1 or > 4) throw new ArgumentOutOfRangeException(nameof(value)); _canvas.Zoom = value; _canvas.MarkDirty(); } }
+    public bool FitToWindow { get => _fit; set { _fit = value; UpdateViewport(); } }
+    public double Zoom { get => _zoom; set { if (!double.IsFinite(value) || value is < .1 or > 4) throw new ArgumentOutOfRangeException(nameof(value)); _zoom = value; UpdateViewport(); } }
     public byte[] CapturePng() => _canvas.CapturePng();
     public RemoteDesktopView()
     {
         IsTabStop = true; HorizontalContentAlignment = HorizontalAlignment.Stretch;
         VerticalContentAlignment = VerticalAlignment.Stretch;
-        Background = new SolidColorBrush(Microsoft.UI.Colors.Black); Content = _canvas;
+        Background = new SolidColorBrush(Microsoft.UI.Colors.Black);
+        ConfigureViewport();
+        _canvas.FrameRequested += RequestPresentation;
         AutomationProperties.SetName(this, "Remote desktop");
         AutomationProperties.SetHelpText(this, "Remote keyboard and pointer input. Move focus out of the session to release held keys.");
-        _refresh.Tick += (_, _) => _canvas.PresentIfDirty();
-        Loaded += (_, _) => { if (!_disposed) _refresh.Start(); };
-        Unloaded += (_, _) => { _refresh.Stop(); ReleaseHeldInput(); };
-        SizeChanged += (_, _) => _canvas.MarkDirty();
+        _refresh.Tick += (_, _) =>
+        {
+            _refresh.Stop();
+            if (_presentation.Take(_presentationTicket)) { ScheduledPresentations++; _canvas.Present(); }
+        };
+        Loaded += (_, _) => { _loaded = true; UpdateViewport(); UpdatePresentationActivity(); };
+        Unloaded += (_, _) => { _loaded = false; UpdatePresentationActivity(); ReleaseHeldInput(); };
+        SizeChanged += (_, _) => UpdateViewport();
         ConfigureInput();
     }
     protected override AutomationPeer OnCreateAutomationPeer() => new DesktopPeer(this);
@@ -69,6 +75,11 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
         try
         {
             if (_disposed && session is not null) throw new ObjectDisposedException(nameof(RemoteDesktopView));
+            if (session is not null)
+            {
+                _horizontalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_horizontal);
+                _verticalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_vertical);
+            }
             if (_session is { } old)
             {
                 ReleaseHeldInput(); _outbox?.Complete();
@@ -84,9 +95,14 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
             _stop?.Dispose(); _stop = null; _outbox = null; _writer = null;
             lock (_events) { _session = session; _canvas.Clear(); }
             _input.ReleaseAll(); ProtectedCursor = _arrow;
+            UpdateViewport();
             if (session is null) return;
             _stop = new(); _outbox = new();
-            _onSize = size => { lock (_events) if (ReferenceEquals(_session, session)) _canvas.Resize(size.Width, size.Height); };
+            _onSize = size =>
+            {
+                lock (_events) if (ReferenceEquals(_session, session)) _canvas.Resize(size.Width, size.Height);
+                DispatcherQueue.TryEnqueue(() => { if (ReferenceEquals(_session, session)) UpdateViewport(); });
+            };
             _onSurface = update => { lock (_events) if (ReferenceEquals(_session, session)) _canvas.Apply(update); };
             _onCursor = cursor =>
             {
@@ -110,7 +126,8 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
     public ValueTask DisposeAsync() => new(_disposal ??= DisposeCoreAsync());
     private async Task DisposeCoreAsync()
     {
-        if (_disposed) return; _disposed = true; _refresh.Stop();
-        await AttachAsync(null); _canvas.Dispose(); _arrow.Dispose();
+        if (_disposed) return; _disposed = true; _refresh.Stop(); _presentation.Dispose();
+        try { await AttachAsync(null); _canvas.Dispose(); _arrow.Dispose(); }
+        finally { _horizontalFocus?.Dispose(); _verticalFocus?.Dispose(); _horizontalFocus = _verticalFocus = null; }
     }
 }

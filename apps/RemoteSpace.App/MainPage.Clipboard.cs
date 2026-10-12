@@ -1,16 +1,15 @@
 using Microsoft.UI.Xaml.Controls;
 using RemoteSpace.Controls;
+using RemoteSpace.Core;
 
 namespace RemoteSpace.App;
 
 public sealed partial class MainPage
 {
     private readonly ITextClipboard _textClipboard = new SystemTextClipboard();
-    private void AddClipboardCommands(StackPanel toolbar, OpenSession opened)
+    private void AddClipboardCommands(SessionCommandBar bar, OpenSession opened)
     {
         bool busy = false;
-        var send = new Button { Content = "Send clipboard", IsEnabled = opened.Profile.RedirectClipboard };
-        var copy = new Button { Content = "Copy remote text", IsEnabled = opened.Profile.RedirectClipboard };
         async Task Execute(bool sending)
         {
             if (busy) return;
@@ -32,11 +31,15 @@ public sealed partial class MainPage
                     Status.Text = $"Clipboard: copied {text.Length} remote characters to the local clipboard.";
                 }
             }
-            catch (Exception e) { ShowError(e.Message); }
             finally { busy = false; }
         }
-        send.Click += async (_, _) => await Execute(true);
-        copy.Click += async (_, _) => await Execute(false);
-        toolbar.Children.Add(send); toolbar.Children.Add(copy);
+        bar.AddMenu("Clipboard", "\uE77F", () =>
+        {
+            bool allowed = opened.Profile.RedirectClipboard && opened.Session.State == SessionState.Active && !busy;
+            var menu = new MenuFlyout();
+            menu.Items.Add(bar.MenuCommand("Send clipboard", () => Execute(true), allowed));
+            menu.Items.Add(bar.MenuCommand("Copy remote text", () => Execute(false), allowed));
+            return menu;
+        });
     }
 }
