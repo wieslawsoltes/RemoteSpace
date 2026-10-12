@@ -81,3 +81,47 @@ test('disposal removes every listener and retained activation', () => {
     assert.equal(f.root.listeners.length,0); assert.equal(f.host.listeners.length,0);
     f.dispatch('keyup'); assert.equal(f.counts().native,1);
 });
+
+// Native HTML-button default is kept, while document-level XAML routing is not.
+function ownedButtonFixture() {
+    const root = new Node(), host = new Node();
+    const button = {tagName:'BUTTON', getAttribute:name => name === 'xamlautomationid' ? 'remotespace-session-command-fixture' : null};
+    const dispose = bind(root,host);
+    function event(key='Enter', target=button) {
+        return {key,code:key === ' ' ? 'Space' : key,target,defaultPrevented:false,stopped:false,
+            preventDefault(){this.defaultPrevented=true;},stopPropagation(){this.stopped=true;},
+            composedPath:()=>[target,root,host]};
+    }
+    return {root,host,button,event,dispose};
+}
+test('owned toolbar buttons retain browser default activation without native key routing', () => {
+    for(const key of ['Enter',' ']) {
+        const f=ownedButtonFixture(), down=f.event(key), up=f.event(key);
+        f.host.dispatch('keydown',down,true); f.root.dispatch('keydown',down);
+        assert.equal(down.stopped,true);assert.equal(down.defaultPrevented,false);
+        f.host.dispatch('keyup',up,true);
+        assert.equal(up.stopped,true);assert.equal(up.defaultPrevented,false);
+    }
+});
+test('held toolbar keys do not replay commands and release cannot activate another focused target', () => {
+    const f=ownedButtonFixture();f.root.dispatch('keydown',f.event(' '));
+    const repeat=f.event(' ',new Node('button'));f.host.dispatch('keydown',repeat,true);
+    assert.equal(repeat.stopped,true);assert.equal(repeat.defaultPrevented,true);
+    const up=f.event(' ',new Node('button'));f.host.dispatch('keyup',up,true);
+    assert.equal(up.stopped,true);assert.equal(up.defaultPrevented,true);
+    const later=f.event();f.host.dispatch('keydown',later,true);assert.equal(later.stopped,false);
+});
+test('ordinary buttons and remote keystrokes are not claimed by the toolbar adapter', () => {
+    const f=ownedButtonFixture();
+    const other={tagName:'BUTTON',getAttribute:()=>null};
+    const e=f.event('Enter',other);f.root.dispatch('keydown',e);
+    assert.equal(e.stopped,false);assert.equal(e.defaultPrevented,false);
+    const letter=f.event('a');f.root.dispatch('keydown',letter);assert.equal(letter.stopped,false);
+});
+test('toolbar gesture cleanup prevents stale release handling after blur or disposal', () => {
+    for(const cleanup of ['blur','dispose']) {
+        const f=ownedButtonFixture();f.root.dispatch('keydown',f.event());
+        if(cleanup==='blur') f.host.dispatch('blur',{});else f.dispose();
+        const up=f.event();f.host.dispatch('keyup',up,true);assert.equal(up.stopped,false);
+    }
+});

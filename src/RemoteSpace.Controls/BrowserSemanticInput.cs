@@ -32,13 +32,25 @@ export function bind(root, host) {
     // At most three physical activation keys. No arbitrary key values or user
     // input contents are retained; no polling, timers or mutation observers.
     const held = new Set();
+    const buttonKeys = new Map();
     const activation = e => e.key === 'Enter'
         ? (e.code === 'NumpadEnter' ? 'NumpadEnter' : 'Enter')
         : e.key === ' ' ? 'Space' : null;
     const stop = e => { e.preventDefault(); e.stopPropagation(); };
     const down = e => {
         const key = activation(e);
-        if (!key || !e.defaultPrevented) return;
+        if (!key) return;
+        const button = e.composedPath().find(n => n?.tagName === 'BUTTON' &&
+            n.getAttribute?.('xamlautomationid')?.startsWith('remotespace-session-command-'));
+        if (button && !e.defaultPrevented) {
+            // A native HTML button already implements Enter/Space and invokes
+            // Uno's existing provider on click. Keep that default, but do not
+            // also route the same key to XAML's possibly different focused item.
+            buttonKeys.set(key, button);
+            e.stopPropagation();
+            return;
+        }
+        if (!e.defaultPrevented) return;
         // A callback may already have removed its menu. The dispatch path, not
         // current DOM ancestry, preserves the scope that handled this event.
         const path = e.composedPath();
@@ -48,13 +60,21 @@ export function bind(root, host) {
     };
     const repeat = e => {
         const key = activation(e);
-        if (key && held.has(key)) stop(e);
+        if (key && (held.has(key) || buttonKeys.has(key))) stop(e);
     };
     const up = e => {
         const key = activation(e);
-        if (key && held.delete(key)) stop(e);
+        if (key && held.delete(key)) { stop(e); return; }
+        const button = key && buttonKeys.get(key);
+        if (button) {
+            buttonKeys.delete(key);
+            e.stopPropagation();
+            // Space's default click belongs only to the original button. A
+            // command which moves focus must not click its newly focused target.
+            if (e.target !== button) e.preventDefault();
+        }
     };
-    const clear = () => held.clear();
+    const clear = () => { held.clear(); buttonKeys.clear(); };
     root.addEventListener('keydown', down);
     host.addEventListener('keydown', repeat, true);
     host.addEventListener('keyup', up, true);
