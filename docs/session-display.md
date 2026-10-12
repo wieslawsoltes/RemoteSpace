@@ -111,3 +111,32 @@ this does not change the tile/row design or implement the excluded compact-row
 and captured-profile-identity follow-up. The browser driver waits for the real
 input or its expander to appear after deferred dialog creation before deciding
 whether to expand. It still uses one real keyboard gesture and checks the result.
+
+## Semantic/native menu double routing
+
+The runtime shipped with this candidate handles a semantic menu item's Enter or
+Space in `SemanticElements.createMenuItemElement`: it calls `preventDefault()`
+and invokes its managed provider. `BrowserKeyboardInputSource` subsequently
+handles the same bubbling event at `document`, without checking `defaultPrevented`.
+If the provider closed the menu or opened a dialog, native routing can target the
+previous button and leave it pressed, reopening a menu on a later key release.
+Waiting longer for focus or deferring a dialog alone does not correct this route.
+Primary upstream sources: [semantic menu keyboard handler](https://github.com/unoplatform/uno/blob/0599dada9e9ed2eed2ee4a05f039c78351c8bc3b/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/SemanticElements.ts)
+and [document keyboard router](https://github.com/unoplatform/uno/blob/0599dada9e9ed2eed2ee4a05f039c78351c8bc3b/src/Uno.UI.Runtime.WebAssembly.Browser/ts/Runtime/BrowserKeyboardInputSource.ts).
+The corresponding functions were also inspected in the exact built
+`Uno.Runtime.Wasm.js`, not inferred from upstream's current branch alone.
+
+`BrowserSemanticInput` is an explicit, browser-only host compatibility adapter.
+It consumes only already-default-prevented Enter/Space events whose dispatch path
+contains a semantic menu item and the Uno semantic root. It leaves native buttons,
+text input, unhandled keys, arrows, Escape and pointer input unchanged. A bounded
+three-key set consumes repeats and the matching release even if focus changes;
+blur/pagehide clear the set. Installation is idempotent and disposal unregisters
+all listeners. No DOM values, layouts, private Uno methods or command providers
+are replaced. No timers or observers run in the adapter. If an updated host stops
+the event before the root, the adapter has nothing to intercept.
+
+Seven exact-module Node tests cover duplicate routing, removed menu targets,
+repeat gestures, untouched non-menu input, physical key pairing and cleanup.
+The unchanged real application tests cover device dialogs, held activation,
+clipboard menus, session actions and remote input separately.

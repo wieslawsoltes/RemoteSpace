@@ -32,6 +32,8 @@ public sealed partial class MainPage : Page
         {
             if (_ready || _loading) return;
             _loading = true;
+            try { await BrowserSemanticInput.InitializeAsync(); }
+            catch (Exception e) { ShowError("Keyboard accessibility initialization failed: " + e.Message); }
             try { await _textClipboard.InitializeAsync(); }
             catch (Exception e) { ShowError("Local clipboard unavailable: " + e.Message); }
             try { await _fileAccess.InitializeAsync(); }

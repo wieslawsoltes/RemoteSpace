@@ -56,7 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           dotnet run --project tests/RemoteSpace.Clipboard.Tests -c Release 2>&1 | tee artifacts/validation/clipboard-tests.log
-          node --test tests/browser/clipboard-service.test.mjs tests/browser/file-service.test.mjs 2>&1 | tee artifacts/validation/clipboard-service.log
+          node --test tests/browser/clipboard-service.test.mjs tests/browser/file-service.test.mjs tests/browser/semantic-input.test.mjs 2>&1 | tee artifacts/validation/clipboard-service.log
       - name: Sparse presentation and allocation regressions
         shell: bash
         run: |
