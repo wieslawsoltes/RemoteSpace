@@ -18,7 +18,7 @@ public static class DisplayResolution
 
     private static int Dimension(string? text, string name)
     {
-        if (text is null || text.Length > 16 ||
+        if (text is null || text.Length > 16 || text.Contains('\0') ||
             !int.TryParse(text.AsSpan().Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int value) ||
             value is < 200 or > 8192)
             throw new FormatException(name + " must be a whole number from 200 to 8192 pixels.");

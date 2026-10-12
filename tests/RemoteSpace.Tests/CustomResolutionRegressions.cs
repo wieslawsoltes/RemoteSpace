@@ -8,7 +8,7 @@ internal static class CustomResolutionRegressions
     {
         int checks = 0;
         var caps = new DisplayCapabilities(1, DisplayLayout.MaximumArea);
-        void Check(bool condition) { if (!condition) throw new Exception("Custom resolution regression"); checks++; }
+        void Check(bool condition) { if (!condition) throw new Exception("Custom resolution regression #" + checks); checks++; }
         void Reject(string? width, string? height, DisplayCapabilities? limits = null)
         {
             bool rejected = false;
