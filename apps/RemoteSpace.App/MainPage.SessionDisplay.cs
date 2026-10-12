@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
 using RemoteSpace.Controls;
 using RemoteSpace.Core;
 
@@ -6,7 +7,7 @@ namespace RemoteSpace.App;
 
 public sealed partial class MainPage
 {
-    private bool _presentationWired;
+    private bool _presentationWired, _tabsVisible, _restoringTabs;
     private void EnsureSessionPresentation()
     {
         if (_presentationWired) return;
@@ -15,12 +16,38 @@ public sealed partial class MainPage
     }
     private void RefreshSessionPresentation()
     {
-        if (SessionContent is null) return;
+        if (SessionContent is null || _restoringTabs) return;
+        bool visible = _section == "sessions";
+        if (visible && !_tabsVisible) RestoreSessionTabs();
+        _tabsVisible = visible;
         var selected = _sessions.FirstOrDefault(s => Sessions.SelectedItem == s.Tab);
         SessionContent.ShowPanel(_section == "sessions" ? selected?.Panel : null);
         foreach (var session in _sessions)
             session.View.IsPresentationActive = _section == "sessions" && ReferenceEquals(selected, session);
     }
+    private void RestoreSessionTabs()
+    {
+        // The pinned Skia virtualized-container path restores a shown TabViewItem
+        // as a list option and omits its close-button subtree. Realize fresh
+        // selector containers on navigation only; keep every live session, view
+        // and bitmap. There are at most eight selectors, never a per-frame rebuild.
+        var selected = _sessions.FirstOrDefault(s => Sessions.SelectedItem == s.Tab);
+        _restoringTabs = true;
+        try
+        {
+            Sessions.TabItems.Clear();
+            foreach (var session in _sessions)
+            {
+                var tab = new TabViewItem { Header = session.Profile.Name + " · " + session.Session.State, IsClosable = true };
+                AutomationProperties.SetName(tab, session.Profile.Name);
+                session.Tab = tab;
+                Sessions.TabItems.Add(tab);
+            }
+            Sessions.SelectedItem = (selected ?? _sessions.FirstOrDefault())?.Tab;
+        }
+        finally { _restoringTabs = false; }
+    }
+
     private void AddSessionActions(SessionCommandBar bar, OpenSession opened)
     {
         bar.AddMenu("Session actions", "\uE712", () =>

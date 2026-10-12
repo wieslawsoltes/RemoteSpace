@@ -30,3 +30,14 @@ generated interop. It never intercepts keystrokes or changes values/DOM geometry
 Registrations are bounded, reentrancy guarded and removed on view disposal.
 Native desktop hosts need no adapter. MouseIndicator makes the actual native
 scrollbar tracks visible rather than leaving their default indicator mode None.
+
+After restoring scrollbar focus, the live suite passed zoomed pixels at both pan
+limits, pointer mapping, narrow command layout, hidden catch-up and graphics
+pause/resume. The final close test found that showing the native tab strip again
+had restored its item as an option without a close-button subtree. The host now
+realizes fresh TabViewItem selector containers when re-entering session navigation,
+with reentrant selection events guarded. At most eight selectors are recreated;
+live session objects, selected identity, view controls and decoded pixels remain.
+State changes update the current selector, not a captured obsolete container.
+Browser coverage still clicks the actual native Close Tab button after navigation
+and requires successful disconnect followed by a fresh credential-based reconnect.

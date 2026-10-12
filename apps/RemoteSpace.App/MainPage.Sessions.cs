@@ -80,12 +80,12 @@ public sealed partial class MainPage
             session.StateChanged += s => DispatcherQueue.TryEnqueue(() =>
             {
                 if (!_sessions.Contains(opened)) return;
-                UpdateBar(); tab.Header = profile.Name + " · " + s;
+                UpdateBar(); opened.Tab.Header = profile.Name + " · " + s;
                 if (s == SessionState.Active && !opened.RecordedActive)
                 {
                     opened.RecordedActive = true;
                     _ = Mutate(c => { if (c.Find(profile.Id) is not null) c.MarkConnected(profile.Id, DateTimeOffset.UtcNow); });
-                    if (_section == "sessions" && Sessions.SelectedItem == tab) view.Focus(FocusState.Programmatic);
+                    if (_section == "sessions" && Sessions.SelectedItem == opened.Tab) view.Focus(FocusState.Programmatic);
                 }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
             });
@@ -144,7 +144,7 @@ public sealed partial class MainPage
         public ConnectionProfile Profile { get; } = profile;
         public IRemoteSession Session { get; } = session;
         public RemoteDesktopView View { get; } = view;
-        public TabViewItem Tab { get; } = tab;
+        public TabViewItem Tab { get; set; } = tab;
         public Grid Panel { get; } = panel;
         public CancellationTokenSource Stop { get; } = new();
         public Task Running { get; set; } = Task.CompletedTask;

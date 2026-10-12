@@ -135,6 +135,8 @@ async def validate_session_display(page, metrics, output, passed):
                 raise AssertionError('Hidden session stopped retaining actual remote desktop updates.')
             await asyncio.sleep(.1)
         await navigate(page, 'Active sessions')
+        await expect(page.get_by_role('tab', name='Loopback desktop', exact=True)).to_be_visible()
+        await expect(page.get_by_role('button', name='Close Tab', exact=True)).to_be_visible()
         until = time.monotonic() + 10
         while True:
             await page.screenshot(path=str(output / '08-hidden-session-catchup.png'))
