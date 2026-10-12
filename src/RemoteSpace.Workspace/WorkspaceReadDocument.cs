@@ -61,6 +61,8 @@ internal sealed class WorkspaceReadProfile
     public SecurityMode Security { get; set; } = SecurityMode.NetworkLevelAuthentication;
     public string? CertificateSha256 { get; set; }
     public bool RedirectClipboard { get; set; }
+    public bool FitSessionToWindow { get; set; } = true;
+    public double LocalZoom { get; set; } = 1;
     public ConnectionProfile ToProfile()
     {
         if (Name is null || Group is null || Host is null || UserName is null || Domain is null)
@@ -70,7 +72,7 @@ internal sealed class WorkspaceReadProfile
             Id = Id, Name = Name, Group = Group, Host = Host, Port = Port, UserName = UserName,
             Domain = Domain, Favorite = Favorite, Width = Width, Height = Height,
             BitsPerPixel = BitsPerPixel, Security = Security, CertificateSha256 = CertificateSha256,
-            RedirectClipboard = RedirectClipboard
+            RedirectClipboard = RedirectClipboard, FitSessionToWindow = FitSessionToWindow, LocalZoom = LocalZoom
         };
     }
 }
