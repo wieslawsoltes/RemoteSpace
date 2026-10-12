@@ -58,9 +58,45 @@ async def focus_command(page, target):
     await expect(target).to_be_visible(timeout=30000)
     await expect(target).to_be_enabled(timeout=10000)
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await target.focus()
-    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await expect(target).to_be_focused(timeout=10000)
+    # Record only bounded element metadata around this transition. Never read
+    # text/value attributes: this helper also runs alongside credential dialogs.
+    # This observes focus; it does not invoke commands or alter native routing.
+    await page.evaluate('''() => {
+        const describe = node => node ? {
+            tag: node.tagName, id: node.id,
+            role: node.getAttribute?.('role'),
+            automation: node.getAttribute?.('xamlautomationid')
+        } : null;
+        const trace = [];
+        const observe = event => {
+            if (trace.length === 32) trace.shift();
+            trace.push({event: event.type, target: describe(event.target),
+                        active: describe(document.activeElement)});
+        };
+        document.addEventListener('focusin', observe, true);
+        document.addEventListener('focusout', observe, true);
+        globalThis.__remoteFocusProbe = {trace, describe, observe};
+    }''')
+    try:
+        await target.focus()
+        await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        await expect(target).to_be_focused(timeout=10000)
+    except Exception:
+        state = await page.evaluate('''() => {
+            const p = globalThis.__remoteFocusProbe;
+            return {active: p.describe(document.activeElement),
+                    documentFocused: document.hasFocus(), events: p.trace};
+        }''')
+        print('FOCUS_TRANSITION_FAILED ' + str(state), flush=True)
+        await page.evaluate('(state) => console.error("FOCUS_TRANSITION_FAILED", JSON.stringify(state))', state)
+        raise
+    finally:
+        await page.evaluate('''() => {
+            const p = globalThis.__remoteFocusProbe;
+            document.removeEventListener('focusin', p.observe, true);
+            document.removeEventListener('focusout', p.observe, true);
+            delete globalThis.__remoteFocusProbe;
+        }''')
 
 async def command(page, name):
     if name in SESSION_MENUS:
