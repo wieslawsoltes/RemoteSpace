@@ -76,3 +76,12 @@ focus-only notifications with no scheduled work, callback reentrancy/errors,
 registration/disposal bounds and untouched unrelated input. Browser zoom coverage
 performs repeated real Home/End focus handoffs before checking original remote
 pixels, no outgoing remote keys, pointer coordinates and subsequent toolbar focus.
+
+## Target-owned navigation supersedes focus-only key routing
+
+The subsequent live-session review found that native focus plus ordinary keyboard
+routing was still insufficient during rapid handoffs. Supported owned-scrollbar
+navigation now targets its registered control directly and consumes that event
+once, rather than relying on the current global native focus. Other input routes
+and passive focus notifications are unchanged. See [owned scrollbar navigation](owned-scrollbar-navigation.md)
+for the failed raster evidence, exact routing scope and validation requirements.
