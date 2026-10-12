@@ -41,7 +41,15 @@ async def validate_workspace_ui(page, output, passed):
     await command(page, 'List view')
     await expect(page.get_by_role('button', name='List view', exact=True)).to_have_attribute('aria-pressed', 'true')
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await action('quick.test.invalid (copy)', 'Edit')
+    # Hold the real activation key through multiple presentation turns. The
+    # newly opened editor must not consume its launching gesture as Save.
+    await command(page, 'Options for quick.test.invalid (copy)')
+    edit_item = page.get_by_role('menuitem', name='Edit', exact=True)
+    await expect(edit_item).to_be_visible(); await edit_item.focus()
+    await page.keyboard.down('Enter')
+    await page.wait_for_timeout(240)
+    await page.keyboard.up('Enter')
+    await expect(page.get_by_role('menuitem')).to_have_count(0)
     await expect(page.get_by_label('Friendly name', exact=True)).to_be_visible(timeout=15000)
     await expect(page.get_by_role('button', name='Save', exact=True)).to_be_attached()
     await edit(page, 'Friendly name', 'Build server')
