@@ -47,43 +47,42 @@ public sealed partial class MainPage
 #endif
             pendingSession = session;
             var credentials = new SessionCredentials(user.Text, password.Password, domain.Text); password.Password = token.Password = "";
+            EnsureSessionPresentation();
             var view = new RemoteDesktopView(); pendingView = view; await view.AttachAsync(session);
-            var state = new TextBlock { Text = "Connecting…", VerticalAlignment = VerticalAlignment.Center };
-            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(8) };
+            var toolbar = new SessionCommandBar { Title = profile.Name, Status = "Connecting…" };
+            toolbar.CommandFailed += ShowError;
             var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-            panel.Children.Add(new ScrollViewer { Content = toolbar, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled }); Grid.SetRow(view, 1); panel.Children.Add(view);
+            panel.Children.Add(toolbar); Grid.SetRow(view, 1); panel.Children.Add(view);
             var tab = new TabViewItem { Header = profile.Name, Content = panel, IsClosable = true };
             var opened = new OpenSession(profile, session, view, tab); pendingTab = opened;
-            void Button(string label, Action action) { var b = new Button { Content = label }; b.Click += (_, _) => action(); toolbar.Children.Add(b); }
+            toolbar.AddCommand("Fit", "\uE9A6", () => { view.SetScale(null); view.Focus(FocusState.Programmatic); return Task.CompletedTask; });
             AddDisplayControls(session, view, toolbar);
-            Button("Fit", () => { view.FitToWindow = true; view.Focus(FocusState.Programmatic); });
-            Button("100%", () => { view.Zoom = 1; view.FitToWindow = false; });
-            Button("−", () => { view.FitToWindow = false; view.Zoom = Math.Max(.1, view.Zoom - .25); });
-            Button("+", () => { view.FitToWindow = false; view.Zoom = Math.Min(4, view.Zoom + .25); });
-            Button("Full screen", () => { var appView = ApplicationView.GetForCurrentView(); if (appView.IsFullScreenMode) appView.ExitFullScreenMode(); else appView.TryEnterFullScreenMode(); });
-            Button("Ctrl+Alt+Del", () => view.SendSecureAttention());
             AddClipboardCommands(toolbar, opened);
-            var capture = new Button { Content = "Capture" }; capture.Click += async (_, _) =>
+            AddSessionActions(toolbar, opened);
+            toolbar.AddCommand("Full screen", "\uE740", () =>
             {
-                try
-                {
-                    if (await _fileAccess.ExportAsync(profile.Name + "-desktop.png", view.CapturePng(), "image/png"))
-                        Status.Text = OperatingSystem.IsBrowser() ? "Screenshot download requested." : "Screenshot saved.";
-                }
-                catch (Exception e) { ShowError(e.Message); }
-            }; toolbar.Children.Add(capture); toolbar.Children.Add(state);
+                var appView = ApplicationView.GetForCurrentView();
+                if (appView.IsFullScreenMode) appView.ExitFullScreenMode();
+                else if (!appView.TryEnterFullScreenMode()) throw new InvalidOperationException("Full screen was declined by the host. Try the browser's full-screen command.");
+                return Task.CompletedTask;
+            });
+            void UpdateBar() => toolbar.Status = $"{session.State} · {view.DesktopWidth} × {view.DesktopHeight} · {(view.FitToWindow ? "Fit" : view.Zoom.ToString("0%"))}";
+            view.ViewChanged += UpdateBar;
+            if (session is IRemoteGraphicsOutput output)
+                output.OutputEnabledChanged += enabled => DispatcherQueue.TryEnqueue(() => { if (_sessions.Contains(opened)) view.IsEnabled = enabled; });
             view.InputError += ShowError;
             session.Diagnostic += d => DispatcherQueue.TryEnqueue(() => { while (_diagnostics.Count >= 200) _diagnostics.Dequeue(); _diagnostics.Enqueue($"{d.Time:O} [{d.Stage}] {d.Message}"); });
             session.ClipboardReceived += text => DispatcherQueue.TryEnqueue(() => opened.RemoteClipboard = text);
             session.StateChanged += s => DispatcherQueue.TryEnqueue(() =>
             {
                 if (!_sessions.Contains(opened)) return;
-                state.Text = s.ToString(); tab.Header = profile.Name + " · " + s;
+                UpdateBar(); tab.Header = profile.Name + " · " + s;
                 if (s == SessionState.Active && !opened.RecordedActive) { opened.RecordedActive = true; _ = Mutate(c => { if (c.Find(profile.Id) is not null) c.MarkConnected(profile.Id, DateTimeOffset.UtcNow); }); view.Focus(FocusState.Programmatic); }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
             });
             _sessions.Add(opened); Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
             Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == "sessions");
+            RefreshSessionPresentation();
             opened.Running = RunSession(opened, profile.ToOptions(), credentials);
             pendingTab = null; pendingView = null; pendingSession = null; // Ownership transferred to the session tab.
         }
@@ -111,6 +110,11 @@ public sealed partial class MainPage
     private async void CloseSession(TabView sender, TabViewTabCloseRequestedEventArgs args)
     {
         var opened = _sessions.FirstOrDefault(s => s.Tab == args.Tab); if (opened is null || opened.Closing) return;
+        await CloseSessionAsync(opened);
+    }
+    private async Task CloseSessionAsync(OpenSession opened)
+    {
+        if (opened.Closing || !_sessions.Contains(opened)) return;
         if (opened.Session.State == SessionState.Active && !await Confirm("Disconnect session", "Disconnect from " + opened.Profile.Name + "? Programs running on the remote PC are not closed.", "Disconnect")) return;
         opened.Closing = true;
         try
@@ -124,6 +128,7 @@ public sealed partial class MainPage
     private void SessionSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         foreach (var opened in _sessions) if (Sessions.SelectedItem != opened.Tab) opened.View.ReleaseHeldInput();
+        RefreshSessionPresentation();
     }
     private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab)
     {
