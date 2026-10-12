@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 #if __WASM__
 using System.Runtime.InteropServices.JavaScript;
 using System.Text;
@@ -24,7 +25,8 @@ public static partial class BrowserScrollBarFocus
         if (string.IsNullOrEmpty(id)) throw new ArgumentException("A registered scrollbar needs a unique AutomationId.", nameof(bar));
         Register(id, () =>
         {
-            if (bar.IsLoaded && bar.IsEnabled && bar.Visibility == Visibility.Visible)
+            if (bar.IsLoaded && bar.IsEnabled && bar.Visibility == Visibility.Visible &&
+                !ReferenceEquals(FocusManager.GetFocusedElement(bar.XamlRoot), bar))
                 bar.Focus(FocusState.Keyboard);
         });
         return new Registration(id);
@@ -57,17 +59,33 @@ public static partial class BrowserScrollBarFocus
     private static partial void Unregister(string id);
     private const string Source = """
 export function bind(root, registrations) {
-    let dispatching = false;
-    const focus = event => {
-        const target = event.target;
-        if (dispatching || target?.getAttribute?.('role') !== 'scrollbar') return;
+    let dispatching = false, scheduled = false, disposed = false, pending;
+    const flush = () => {
+        scheduled = false;
+        const target = pending;
+        pending = undefined;
+        if (disposed || !target || root.ownerDocument.activeElement !== target) return;
         const callback = registrations.get(target.getAttribute('xamlautomationid'));
         if (!callback) return;
         dispatching = true;
         try { callback(); } finally { dispatching = false; }
     };
+    const focus = event => {
+        if (dispatching) return;
+        const target = event.target;
+        // Native focus notifications can arrive as a batch for old and new
+        // controls. Relaying each synchronously creates a cross-scrollbar echo
+        // loop. Apply only the final still-focused owned target after the turn.
+        // Focus moving to any other control cancels the pending relay.
+        pending = target?.getAttribute?.('role') === 'scrollbar' &&
+            registrations.has(target.getAttribute('xamlautomationid')) ? target : undefined;
+        if (pending && !scheduled) { scheduled = true; queueMicrotask(flush); }
+    };
     root.addEventListener('focusin', focus);
-    return () => root.removeEventListener('focusin', focus);
+    return () => {
+        disposed = true; pending = undefined;
+        root.removeEventListener('focusin', focus);
+    };
 }
 const registrations = new Map();
 let installedRoot, unbind;

@@ -10,7 +10,8 @@ import subprocess
 import time
 from PIL import Image
 from playwright.async_api import expect
-from driver import command, navigate
+from driver import command, navigate, focus_command
+from session_resolution import validate_custom_resolution
 
 async def validate_session_display(page, metrics, output, passed):
     sizes_before = list(metrics['sizes'])
@@ -19,6 +20,22 @@ async def validate_session_display(page, metrics, output, passed):
     host = page.get_by_label('Active remote session', exact=True)
     await expect(host).to_be_visible(timeout=10000)
     await expect(host.get_by_label('Remote desktop', exact=True)).to_be_visible()
+
+    # Require actual, nonoverlapping command geometry, not just six accessible
+    # labels or bounds that all point at the same origin of the session bar.
+    toolbar = page.get_by_label('Connection toolbar buttons', exact=True)
+    await expect(toolbar).to_be_visible(timeout=10000)
+    names = ('Fit', 'Display settings', 'Remote resolution', 'Clipboard', 'Session actions', 'Full screen')
+    bounds = []
+    for name in names:
+        button = toolbar.get_by_role('button', name=name, exact=True)
+        await expect(button).to_be_visible()
+        bounds.append(await button.bounding_box())
+    if any(not b or b['width'] < 30 or b['height'] < 30 for b in bounds):
+        raise AssertionError('A session command has no usable native hit target.')
+    if any(a['x'] + a['width'] > b['x'] for a, b in zip(bounds, bounds[1:])):
+        raise AssertionError('Session command semantic bounds overlap despite separate native icons.')
+    (output / 'toolbar-bounds.json').write_text(json.dumps(dict(zip(names, bounds)), indent=2))
 
     async with page.expect_download(timeout=15000) as captured:
         await command(page, 'Capture')
@@ -106,6 +123,22 @@ async def validate_session_display(page, metrics, output, passed):
     await command(page, 'Fit')
     await expect(horizontal).not_to_be_visible(timeout=10000)
     await expect(vertical).not_to_be_visible(timeout=10000)
+    # Repeat after pan-focus changes. One keyboard gesture per command; no
+    # retries that might mask a lost activation. Also hit the actual native icon.
+    for index in range(3):
+        await command(page, '200%')
+        await expect(horizontal).to_be_visible(timeout=10000)
+        await horizontal.focus(); await page.keyboard.press('End')
+        await page.mouse.move(surface['x'] + 73, surface['y'] + 89)
+        fit = page.get_by_role('button', name='Fit', exact=True)
+        if index == 1:
+            await fit.click(force=True)
+        else:
+            await focus_command(page, fit)
+            await page.keyboard.press(' ' if index == 2 else 'Enter')
+        await expect(horizontal).not_to_be_visible(timeout=10000)
+        await expect(vertical).not_to_be_visible(timeout=10000)
+    passed('Distinct toolbar hit targets and repeated Enter, mouse and Space Fit activation work after local panning')
     viewport = page.viewport_size
     try:
         await page.set_viewport_size({'width': 640, 'height': 900})
@@ -150,3 +183,5 @@ async def validate_session_display(page, metrics, output, passed):
         await background('#14283c')
         await command(page, 'Fit')
     passed('A hidden session retains server updates and presents them when selected again')
+
+    await validate_custom_resolution(page, metrics, output, passed)

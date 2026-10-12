@@ -16,7 +16,7 @@ import time
 import traceback
 import urllib.request
 from playwright.async_api import async_playwright, expect
-from driver import boot, command, edit, navigate
+from driver import boot, command, edit, navigate, focus_command
 from clipboard import round_trip
 from graphics_output import validate_output_controls
 from session_display import validate_session_display
@@ -58,7 +58,7 @@ async def run(site, output):
             page.on('console',lambda m:messages.append(m.type+': '+m.text))
             page.on('pageerror',lambda e:errors.append(str(e)))
             active, resized = asyncio.Event(), asyncio.Event()
-            metrics={'binary_bytes':0,'surface_packets':0,'input_packets':0,'input_batches':0,'max_input_batch':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
+            metrics={'layout_requests':0,'binary_bytes':0,'surface_packets':0,'input_packets':0,'input_batches':0,'max_input_batch':0,'clipboard_packets':0,'clipboard_lengths':[],'sizes':[],'server_controls':[]}
             def received(payload):
                 if isinstance(payload,bytes):
                     if payload.startswith(b'RSU1'):
@@ -74,6 +74,7 @@ async def run(site, output):
             def sent(payload):
                 if isinstance(payload,str):
                     message = json.loads(payload)
+                    if message.get('Type')=='display-layout': metrics['layout_requests']+=1
                     if message.get('Type')=='input': metrics['input_packets']+=1
                     if message.get('Type')=='input-batch':
                         count=len(message.get('Inputs') or [])
@@ -167,7 +168,13 @@ async def run(site, output):
                 await expect(resolution).to_be_enabled(timeout=30000)
                 await command(page,'Remote resolution')
                 before=metrics['surface_packets']
-                await page.get_by_role('menuitem',name='1024 × 768',exact=True).press('Enter')
+                # MenuFlyout assigns its initial native focus asynchronously. Do
+                # not send Enter in the same call which focuses a semantic item:
+                # the initial 800x600 item can otherwise steal that focus.
+                item = page.get_by_role('menuitem', name='1024 × 768', exact=True)
+                await focus_command(page, item)
+                await page.keyboard.press('Enter')
+                await expect(page.get_by_role('menuitem')).to_have_count(0)
                 await asyncio.wait_for(resized.wait(),30)
                 until=time.monotonic()+15
                 while metrics['surface_packets']<=before:

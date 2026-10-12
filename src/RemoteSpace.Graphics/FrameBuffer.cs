@@ -32,9 +32,12 @@ public sealed class FrameBuffer
                 (long)update.X + update.Width > Width || (long)update.Y + update.Height > Height ||
                 update.Rgba.LongLength != (long)update.Width * update.Height * 4)
                 throw new ArgumentException("Bitmap update is outside the desktop or has an invalid payload.", nameof(update));
-            for (int row = 0; row < update.Height; row++)
-                update.Rgba.AsSpan(row * update.Width * 4, update.Width * 4)
-                    .CopyTo(_pixels.AsSpan(((update.Y + row) * Width + update.X) * 4));
+            if (update.X == 0 && update.Width == Width)
+                update.Rgba.AsSpan().CopyTo(_pixels.AsSpan(update.Y * Width * 4, update.Rgba.Length));
+            else
+                for (int row = 0; row < update.Height; row++)
+                    update.Rgba.AsSpan(row * update.Width * 4, update.Width * 4)
+                        .CopyTo(_pixels.AsSpan(((update.Y + row) * Width + update.X) * 4));
             Revision++;
         }
     }
@@ -52,8 +55,11 @@ public sealed class FrameBuffer
             if (x < 0 || y < 0 || width < 1 || height < 1 || (long)x + width > Width || (long)y + height > Height)
                 throw new ArgumentOutOfRangeException(nameof(width), "Snapshot rectangle is outside the desktop.");
             byte[] copy = new byte[checked(width * height * 4)];
-            for (int row = 0; row < height; row++)
-                _pixels.AsSpan(((y + row) * Width + x) * 4, width * 4).CopyTo(copy.AsSpan(row * width * 4));
+            if (x == 0 && width == Width)
+                _pixels.AsSpan(y * Width * 4, copy.Length).CopyTo(copy);
+            else
+                for (int row = 0; row < height; row++)
+                    _pixels.AsSpan(((y + row) * Width + x) * 4, width * 4).CopyTo(copy.AsSpan(row * width * 4));
             return new(x, y, width, height, copy);
         }
     }
