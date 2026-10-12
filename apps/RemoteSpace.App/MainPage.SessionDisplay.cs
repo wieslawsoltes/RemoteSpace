@@ -17,7 +17,7 @@ public sealed partial class MainPage
     {
         if (SessionContent is null) return;
         var selected = _sessions.FirstOrDefault(s => Sessions.SelectedItem == s.Tab);
-        if (!ReferenceEquals(SessionContent.Child, selected?.Panel)) SessionContent.Child = selected?.Panel;
+        SessionContent.ShowPanel(_section == "sessions" ? selected?.Panel : null);
         foreach (var session in _sessions)
             session.View.IsPresentationActive = _section == "sessions" && ReferenceEquals(selected, session);
     }
