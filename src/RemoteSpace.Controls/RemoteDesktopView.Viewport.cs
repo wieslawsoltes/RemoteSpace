@@ -12,14 +12,15 @@ namespace RemoteSpace.Controls;
 public sealed partial class RemoteDesktopView
 {
     private readonly PresentationGate _presentation = new();
+    private IDisposable? _horizontalFocus, _verticalFocus;
     private long _presentationTicket;
     private bool _loaded, _presentationActive = true;
     private bool _fit = true, _updatingViewport, _lastFit;
     private double _lastZoom;
     private double _zoom = 1, _offsetX, _offsetY;
     private DesktopViewportLayout _viewLayout;
-    private readonly ScrollBar _horizontal = new() { Orientation = Orientation.Horizontal, Height = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, Visibility = Visibility.Collapsed };
-    private readonly ScrollBar _vertical = new() { Orientation = Orientation.Vertical, Width = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, Visibility = Visibility.Collapsed };
+    private readonly ScrollBar _horizontal = new() { Orientation = Orientation.Horizontal, Height = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, IndicatorMode = ScrollingIndicatorMode.MouseIndicator, Visibility = Visibility.Collapsed };
+    private readonly ScrollBar _vertical = new() { Orientation = Orientation.Vertical, Width = 14, Minimum = 0, SmallChange = 32, IsTabStop = true, IndicatorMode = ScrollingIndicatorMode.MouseIndicator, Visibility = Visibility.Collapsed };
     public event Action? ViewChanged;
     public DesktopViewportLayout ViewLayout => _viewLayout;
     public long ScheduledPresentations { get; private set; }
@@ -40,6 +41,9 @@ public sealed partial class RemoteDesktopView
         root.Children.Add(_canvas);
         Grid.SetRow(_horizontal, 1); root.Children.Add(_horizontal);
         Grid.SetColumn(_vertical, 1); root.Children.Add(_vertical);
+        string focusId = "remote-scroll-" + Guid.NewGuid().ToString("N");
+        AutomationProperties.SetAutomationId(_horizontal, focusId + "-horizontal");
+        AutomationProperties.SetAutomationId(_vertical, focusId + "-vertical");
         AutomationProperties.SetName(_horizontal, "Horizontal desktop position");
         AutomationProperties.SetName(_vertical, "Vertical desktop position");
         _horizontal.ValueChanged += (_, _) => { if (!_updatingViewport) PanTo(_horizontal.Value, _offsetY); };

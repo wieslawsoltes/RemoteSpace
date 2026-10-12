@@ -75,6 +75,11 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
         try
         {
             if (_disposed && session is not null) throw new ObjectDisposedException(nameof(RemoteDesktopView));
+            if (session is not null)
+            {
+                _horizontalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_horizontal);
+                _verticalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_vertical);
+            }
             if (_session is { } old)
             {
                 ReleaseHeldInput(); _outbox?.Complete();
@@ -122,6 +127,7 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         if (_disposed) return; _disposed = true; _refresh.Stop(); _presentation.Dispose();
-        await AttachAsync(null); _canvas.Dispose(); _arrow.Dispose();
+        try { await AttachAsync(null); _canvas.Dispose(); _arrow.Dispose(); }
+        finally { _horizontalFocus?.Dispose(); _verticalFocus?.Dispose(); _horizontalFocus = _verticalFocus = null; }
     }
 }
