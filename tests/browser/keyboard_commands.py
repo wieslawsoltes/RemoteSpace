@@ -38,9 +38,14 @@ async def validate_keyboard_commands(page, metrics, output, passed):
 
     # Use ordinary switching chords against the Xorg test desktop. Windows-only
     # actions are codec-tested, not claimed to be Windows-qualified by this fixture.
-    for label, expected in [
-        ('Next application', [(13, 64), (13, 23), (14, 23), (14, 64)]),
-        ('Previous application', [(13, 64), (13, 50), (13, 23), (14, 23), (14, 50), (14, 64)])]:
+    # xorgxrdp v0.10.5 KbdAddEvent routes Tab through sendDownUpKeyEvent:
+    # a Tab make emits an extra raw release before its press to handle X11 repeat.
+    # Assert that exact independent-server sequence, while retaining the smaller
+    # RDP input count. Never send the fixture's extra release from our client.
+    # https://github.com/neutrinolabs/xorgxrdp/blob/v0.10.5/xrdpkeyb/rdpKeyboard.c
+    for label, wire_count, expected in [
+        ('Next application', 4, [(13, 64), (14, 23), (13, 23), (14, 23), (14, 64)]),
+        ('Previous application', 6, [(13, 64), (13, 50), (14, 23), (13, 23), (14, 23), (14, 50), (14, 64)])]:
         before = len(input_log()); input_before = metrics['input_packets']
         await execute(label)
         until = time.monotonic() + 10
@@ -53,7 +58,7 @@ async def validate_keyboard_commands(page, metrics, output, passed):
                 raise AssertionError(f'{label}: complete ordered make/break chord not observed by remote Xorg: {events}')
             await asyncio.sleep(.1)
         await asyncio.sleep(.15)
-        if metrics['input_packets'] - input_before != len(expected):
+        if metrics['input_packets'] - input_before != wire_count:
             raise AssertionError('The menu activation escaped into remote input or the command was sent more than once.')
         (output / (label.replace(' ', '-') + '.events.json')).write_text(json.dumps(events, indent=2))
     passed('Keyboard commands reach remote Xorg in exact balanced order with no duplicate activation keys')

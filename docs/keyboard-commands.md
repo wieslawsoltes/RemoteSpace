@@ -72,3 +72,11 @@ separate Windows-host qualification; XRDP proves transport of the tested physica
 chords, not those Windows effects. Actual passing results are in exact-head CI
 artifacts. This work is independent of the unpublished PR #7 tab/automatic-resolution
 patches and does not complete the remaining Windows App parity matrix.
+
+The pinned xorgxrdp 0.10.5 keyboard driver deliberately generates an extra raw
+Tab release before a Tab press to reconcile X11 repeats. The independent Xorg
+assertion therefore requires five/seven raw events for the two tested chords,
+while the browser-to-RDP check still requires exactly four/six input events.
+RemoteSpace does not synthesize that server-only release. The fixture behavior
+is explicit in [sendDownUpKeyEvent and the Tab case](https://github.com/neutrinolabs/xorgxrdp/blob/v0.10.5/xrdpkeyb/rdpKeyboard.c);
+the two observation points must not be treated as identical event streams.
