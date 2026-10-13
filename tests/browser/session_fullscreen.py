@@ -21,7 +21,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     input_before = await validate_fullscreen_pixels(page, metrics, output, '18-windowed-baseline', input_before)
     await expect(page.get_by_label('Workspace sections', exact=True).get_by_label('Remote desktop', exact=True)).to_be_visible()
     baseline = await page.get_by_label('Remote desktop', exact=True).bounding_box()
-    async def entered(name):
+    async def entered(name, reference_path=None):
         nonlocal input_before
         await command(page, 'Full screen')
         await page.wait_for_function('document.fullscreenElement === document.documentElement')
@@ -47,7 +47,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
                 check = subprocess.run(['python3','tests/browser/assert_pixels.py',str(picture)],capture_output=True,text=True)
                 if check.returncode == 0:
                     (output/(name+'.geometry.json')).write_text(json.dumps({'host':size,'remote_view':bounds,'windowed_view':baseline},indent=2))
-                    input_before = await validate_fullscreen_pixels(page, metrics, output, name, input_before)
+                    input_before = await validate_fullscreen_pixels(page, metrics, output, name, input_before, reference_path=reference_path)
                     return
             if time.monotonic() >= until:
                 raise AssertionError('Full screen did not expand the real remote surface to the window beneath its pinned toolbar: '+str(bounds))
@@ -76,11 +76,14 @@ async def validate_session_fullscreen(page, metrics, output, passed):
             raise AssertionError('A local fullscreen transition changed server resolution or reconnected the session.')
 
     await entered('18-fullscreen-session.png')
-    input_before = await validate_toolbar_collapse(page, metrics, output, passed, input_before)
+    # Reuse the first real fullscreen PNG across all local-only transitions.
+    # The four-download/64 MiB retention guard is deliberately unchanged.
+    reference_path = output / '18-fullscreen-session.png.remote.png'
+    input_before = await validate_toolbar_collapse(page, metrics, output, passed, input_before, reference_path)
     await command(page, 'Exit full screen')
     await restored()
     passed('Full screen displays the real remote desktop beneath the pinned toolbar and restores the workspace without resizing the server')
-    await entered('19-fullscreen-external-exit.png')
+    await entered('19-fullscreen-external-exit.png', reference_path)
     await command(page, 'Collapse connection toolbar')
     await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_be_visible()
     # Exercise a real host-level exit, not an application command or synthetic
@@ -90,7 +93,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     await restored()
     if metrics['input_packets'] != input_before:
         raise AssertionError('Fullscreen commands leaked local activation into remote keyboard input.')
-    await validate_fullscreen_pixels(page, metrics, output, '20-fullscreen-restored', input_before)
+    await validate_fullscreen_pixels(page, metrics, output, '20-fullscreen-restored', input_before, reference_path=reference_path)
     await page.screenshot(path=str(output/'20-fullscreen-restored.png'))
     passed('A platform fullscreen exit restores the session controls, with no duplicate peers or remote activation keys')
     passed('Full-screen capture samples and inverse pointer coordinates agree at both entries and restoration without changing server pixels')

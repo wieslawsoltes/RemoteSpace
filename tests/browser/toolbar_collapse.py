@@ -6,7 +6,7 @@ from playwright.async_api import expect
 from driver import command, focus_command
 from fullscreen_pixels import validate_fullscreen_pixels
 
-async def validate_toolbar_collapse(page, metrics, output, passed, expected_inputs):
+async def validate_toolbar_collapse(page, metrics, output, passed, expected_inputs, reference):
     sizes = list(metrics['sizes'])
     layouts = metrics['layout_requests']
     desktop = page.get_by_label('Remote desktop', exact=True)
@@ -14,10 +14,8 @@ async def validate_toolbar_collapse(page, metrics, output, passed, expected_inpu
     if not identity:
         raise AssertionError('The live desktop must have a semantic identity before collapse.')
     original = await desktop.bounding_box()
-    async with page.expect_download(timeout=15000) as captured:
-        await command(page, 'Capture')
-    reference = output / 'toolbar-collapse.remote.png'
-    await (await captured.value).save_as(str(reference))
+    # A real Capture download made just before this test is the pixel oracle.
+    # Repeated local toolbar changes must not consume more retained export URLs.
 
     async def geometry(collapsed):
         deadline = time.monotonic() + 10
@@ -68,7 +66,7 @@ async def validate_toolbar_collapse(page, metrics, output, passed, expected_inpu
         if await desktop.get_attribute('id') != identity:
             raise AssertionError('Expanding the toolbar recreated the live desktop semantic owner.')
         # Validate the real restored raster and pointer mapping, not only bounds.
-        expected_inputs = await validate_fullscreen_pixels(page, metrics, output, 'toolbar-expanded-'+str(iteration), expected_inputs)
+        expected_inputs = await validate_fullscreen_pixels(page, metrics, output, 'toolbar-expanded-'+str(iteration), expected_inputs, reference_path=reference)
     if metrics['sizes'] != sizes or metrics['layout_requests'] != layouts:
         raise AssertionError('Toolbar-only changes must not reconnect or change server resolution.')
     passed('Fullscreen toolbar collapse fills the window with the same remote desktop and restores exact geometry and pointer mapping')
