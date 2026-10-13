@@ -7,11 +7,12 @@ import time
 from PIL import Image
 from driver import command
 
-async def validate_fullscreen_pixels(page, metrics, output, name, expected_inputs):
-    async with page.expect_download(timeout=15000) as captured:
-        await command(page, 'Capture')
-    reference_path = output / (name + '.remote.png')
-    await (await captured.value).save_as(str(reference_path))
+async def validate_fullscreen_pixels(page, metrics, output, name, expected_inputs, reference_path=None):
+    if reference_path is None:
+        async with page.expect_download(timeout=15000) as captured:
+            await command(page, 'Capture')
+        reference_path = output / (name + '.remote.png')
+        await (await captured.value).save_as(str(reference_path))
     reference = Image.open(reference_path).convert('RGB')
     if list(reference.size) != metrics['sizes'][-1]:
         raise AssertionError('Fullscreen capture must retain the actual server resolution.')

@@ -66,3 +66,20 @@ updates, single-buffer decoding, Skia invalidation batching and negotiated pause
 The browser graphics-output test independently changes the remote desktop while
 suppressed, checks that no bitmap traffic arrives, resumes and verifies the changed
 background in the actual composed screenshot. This is not a mock transport test.
+
+## Fullscreen capture reference lifetime
+
+The fullscreen tests perform actual user-facing Capture downloads for the
+windowed baseline and first fullscreen entry. Later local fullscreen transitions
+reuse the first fullscreen PNG and retain the same pixel, geometry, pointer,
+input-packet and server-layout assertions. This compares to the original pixels
+instead of downloading an interchangeable reference at each local transition.
+
+The f634619 live run reached the second fullscreen exit but its fifth recent
+Capture hit the intentional four-URL/64 MiB export-retention limit. The error was
+visible in the final screenshot; there was no download, and the test correctly
+failed instead of claiming successful validation. The reference reuse removes
+that invalid burst assumption. Production file limits, the 30-second retention
+period, browser permissions, 97% raster threshold and one-pixel geometry/pointer
+tolerances are unchanged. No failing functional job was retried unchanged to
+obtain merge evidence.
