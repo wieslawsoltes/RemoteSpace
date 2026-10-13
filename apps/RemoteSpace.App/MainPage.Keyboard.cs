@@ -27,7 +27,7 @@ public sealed partial class MainPage
                     // when the menu was opened. Do not move local focus remotely
                     // until its launching gesture has finished.
                     opened.View.SendKeyboardCommand(selected.Command);
-                    Status.Text = "Sent " + selected.Keys + " to " + opened.Profile.Name + ".";
+                    Status.Text = "Queued " + selected.Keys + " for " + opened.Profile.Name + ".";
                     return Task.CompletedTask;
                 }, enabled);
                 item.KeyboardAcceleratorTextOverride = command.Keys;

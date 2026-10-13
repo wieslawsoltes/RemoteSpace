@@ -16,6 +16,6 @@ public sealed partial class RemoteDesktopView
         if (_session is IRemoteGraphicsOutput output && !output.OutputEnabled)
             throw new InvalidOperationException("Resume remote updates before sending keys.");
         if (_outbox is null || !_input.TryEnqueueCommand(_outbox, command))
-            throw new InvalidOperationException("The input queue cannot accept the complete shortcut. No keys were sent; try again when input has drained.");
+            throw new InvalidOperationException("The input queue cannot accept the complete shortcut. No shortcut was queued; try again when input has drained.");
     }
 }
