@@ -52,8 +52,9 @@ public sealed partial class MainPage
             view.SetScale(profile.GetLocalDisplayScale());
             var toolbar = new SessionCommandBar { Title = profile.Name, Status = "Connecting…" };
             toolbar.CommandFailed += ShowError;
-            var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-            panel.Children.Add(toolbar); Grid.SetRow(view, 1); panel.Children.Add(view);
+            var panel = new SessionToolbarPresenter(toolbar, view);
+            panel.LocalCommandStarting += view.ReleaseHeldInput;
+            panel.CommandFailed += ShowError;
             // Keep the live surface in a direct visual sibling container, not TabView's
             // logically reparented content: that host loses the strip offset in
             // its browser semantic bounds, corrupting precise input targeting.
@@ -174,13 +175,13 @@ public sealed partial class MainPage
         foreach (var opened in _sessions) if (Sessions.SelectedItem != opened.Tab) opened.View.ReleaseHeldInput();
         RefreshSessionPresentation();
     }
-    private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab, Grid panel)
+    private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab, SessionToolbarPresenter panel)
     {
         public ConnectionProfile Profile { get; } = profile;
         public IRemoteSession Session { get; } = session;
         public RemoteDesktopView View { get; } = view;
         public TabViewItem Tab { get; set; } = tab;
-        public Grid Panel { get; } = panel;
+        public SessionToolbarPresenter Panel { get; } = panel;
         public Button? FullScreenButton { get; set; }
         public CancellationTokenSource Stop { get; } = new();
         public Task Running { get; set; } = Task.CompletedTask;
