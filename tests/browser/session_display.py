@@ -13,6 +13,7 @@ from playwright.async_api import expect
 from driver import command, navigate, focus_command
 from session_resolution import validate_custom_resolution
 from keyboard_commands import validate_keyboard_commands
+from session_fullscreen import validate_session_fullscreen
 
 async def validate_session_display(page, metrics, output, passed):
     sizes_before = list(metrics['sizes'])
@@ -199,3 +200,4 @@ async def validate_session_display(page, metrics, output, passed):
 
     await validate_custom_resolution(page, metrics, output, passed)
     await validate_keyboard_commands(page, metrics, output, passed)
+    await validate_session_fullscreen(page, metrics, output, passed)

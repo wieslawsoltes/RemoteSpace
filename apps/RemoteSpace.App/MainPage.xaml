@@ -3,8 +3,8 @@
     <DataTemplate x:Key="DeviceTileContent"><controls:DeviceCard Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate>
     <DataTemplate x:Key="DeviceRowContent"><controls:DeviceCard IsList="True" Profile="{Binding Profile}" LastConnected="{Binding LastConnected}" ActionRequested="DeviceAction" /></DataTemplate>
   </Page.Resources>
-  <Grid RowDefinitions="40,*,Auto">
-    <Grid Padding="18,0,14,0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+  <Grid x:Name="ShellLayout" RowDefinitions="40,*,Auto">
+    <Grid x:Name="TitleBar" Padding="18,0,14,0" ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
       <FontIcon Glyph="&#xE8AF;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
       <TextBlock Grid.Column="1" Text="RemoteSpace" FontSize="12" VerticalAlignment="Center" />
       <TextBlock Grid.Column="2" Text="Local workspace" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -22,7 +22,7 @@
       <NavigationView.FooterMenuItems>
         <NavigationViewItem Tag="settings" AutomationProperties.Name="Settings" Padding="4" HorizontalContentAlignment="Center"><StackPanel Spacing="5"><FontIcon Glyph="&#xE713;" FontSize="19" /><TextBlock Text="Settings" FontSize="10" HorizontalAlignment="Center" /></StackPanel></NavigationViewItem>
       </NavigationView.FooterMenuItems>
-      <Border CornerRadius="8,0,0,0" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,1,0,0">
+      <Border x:Name="WorkspaceFrame" CornerRadius="8,0,0,0" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1,1,0,0">
         <Grid x:Name="WorkspaceContent" Padding="28,24,28,12" RowDefinitions="Auto,Auto,*" SizeChanged="WorkspaceSizeChanged">
           <TextBlock x:Name="Heading" Text="Devices" FontSize="28" FontWeight="SemiBold" />
           <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" Margin="0,12,0,8" />

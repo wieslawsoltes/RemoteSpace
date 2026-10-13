@@ -64,13 +64,7 @@ public sealed partial class MainPage
             AddDisplayControls(session, view, toolbar);
             AddClipboardCommands(toolbar, opened);
             AddSessionActions(toolbar, opened);
-            toolbar.AddCommand("Full screen", "\uE740", () =>
-            {
-                var appView = ApplicationView.GetForCurrentView();
-                if (appView.IsFullScreenMode) appView.ExitFullScreenMode();
-                else if (!appView.TryEnterFullScreenMode()) throw new InvalidOperationException("Full screen was declined by the host. Try the browser's full-screen command.");
-                return Task.CompletedTask;
-            });
+            opened.FullScreenButton = toolbar.AddCommand("Full screen", "\uE740", () => ToggleSessionFullscreenAsync(opened));
             void UpdateBar() => toolbar.Status = $"{session.State} · {view.DesktopWidth} × {view.DesktopHeight} · {(view.FitToWindow ? "Fit" : view.Zoom.ToString("0%"))}";
             view.ViewChanged += UpdateBar;
             if (session is IRemoteGraphicsOutput output)
@@ -89,6 +83,7 @@ public sealed partial class MainPage
                     if (_section == "sessions" && Sessions.SelectedItem == opened.Tab) view.Focus(FocusState.Programmatic);
                 }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
+                if (s is SessionState.Disconnected or SessionState.Faulted) _ = ExitEndedFullscreenAsync(opened);
             });
             _sessions.Add(opened); Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
             Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == "sessions");
@@ -129,6 +124,7 @@ public sealed partial class MainPage
         opened.Closing = true;
         try
         {
+            await ExitSessionFullscreenAsync(opened);
             await opened.View.AttachAsync(null); opened.Stop.Cancel(); await opened.Session.DisconnectAsync(); await opened.Running;
             await opened.View.DisposeAsync(); await opened.Session.DisposeAsync(); opened.Stop.Dispose();
             _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab); RefreshSessionState(); RefreshSessionPresentation();
@@ -147,6 +143,7 @@ public sealed partial class MainPage
         public RemoteDesktopView View { get; } = view;
         public TabViewItem Tab { get; set; } = tab;
         public Grid Panel { get; } = panel;
+        public Button? FullScreenButton { get; set; }
         public CancellationTokenSource Stop { get; } = new();
         public Task Running { get; set; } = Task.CompletedTask;
         public string? RemoteClipboard { get; set; }

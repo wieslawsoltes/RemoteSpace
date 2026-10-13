@@ -26,12 +26,15 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
         InitializeWorkspaceAccessibility();
+        InitializeFullscreen();
         Devices.Loaded += (_, _) => UpdateTileSize();
         DeviceGridScroll.SizeChanged += (_, _) => UpdateTileSize();
         Loaded += async (_, _) =>
         {
             if (_ready || _loading) return;
             _loading = true;
+            try { await _windowFullscreen.InitializeAsync(); }
+            catch (Exception e) { ShowError("Full screen unavailable: " + e.Message); }
             try { await BrowserSemanticInput.InitializeAsync(); }
             catch (Exception e) { ShowError("Keyboard accessibility initialization failed: " + e.Message); }
             try { await _textClipboard.InitializeAsync(); }
@@ -49,6 +52,7 @@ public sealed partial class MainPage : Page
     {
         if (DevicePanel is null) return;
         _section = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString() ?? "devices";
+        if (_section != "sessions" && _fullScreenSession is { } fullscreen) _ = ExitEndedFullscreenAsync(fullscreen);
         Heading.Text = _section switch { "favorites" => "Favorites", "sessions" => "Active sessions", "settings" => "Settings", "apps" => "Apps", _ => "Devices" };
         DevicePanel.Visibility = _section is "devices" or "favorites" ? Visibility.Visible : Visibility.Collapsed;
         SessionPanel.Visibility = _section == "sessions" ? Visibility.Visible : Visibility.Collapsed;
@@ -72,7 +76,7 @@ public sealed partial class MainPage : Page
     {
         if (DeviceToolbar is null) return;
         bool narrow = args.NewSize.Width < 650;
-        WorkspaceContent.Padding = new Thickness(narrow ? 12 : 28, 24, narrow ? 12 : 28, 12);
+        WorkspaceContent.Padding = _isSessionFullscreen ? new Thickness(0) : new Thickness(narrow ? 12 : 28, 24, narrow ? 12 : 28, 12);
         Grid.SetRow(DeviceCommands, narrow ? 1 : 0); Grid.SetColumn(DeviceCommands, narrow ? 0 : 1);
         Grid.SetColumnSpan(DeviceCommands, narrow ? 2 : 1); Grid.SetColumnSpan(Search, narrow ? 2 : 1);
         DeviceCommands.Margin = narrow ? new Thickness(0, 12, 0, 0) : new Thickness(0);
