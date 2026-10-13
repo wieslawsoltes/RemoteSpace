@@ -84,6 +84,8 @@ jobs:
           /tmp/remote-browser-tests/bin/playwright install --with-deps chromium
       - name: Validate native browser file lifecycle
         run: /tmp/remote-browser-tests/bin/python tests/browser/file_service_native.py artifacts/browser-validation/file-service
+      - name: Validate native fullscreen permission and lifecycle
+        run: /tmp/remote-browser-tests/bin/python tests/browser/fullscreen_service_native.py artifacts/browser-validation/fullscreen-service
       - name: Validate the actual browser workspace
         run: /tmp/remote-browser-tests/bin/python tests/browser/workspace.py artifacts/browser artifacts/browser-validation
       - uses: actions/upload-artifact@v4
