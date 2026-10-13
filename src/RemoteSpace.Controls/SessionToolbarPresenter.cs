@@ -22,7 +22,8 @@ public sealed class SessionToolbarPresenter : Grid
     };
     private readonly Grid _toolbarPanel = new(), _revealPanel = new();
     private readonly FrameworkElement _desktop;
-    private readonly Button _collapse, _expand;
+    private readonly Button _collapse;
+    private Button? _expand;
     private CancellationTokenSource? _pending;
     public bool IsCollapsed => _state.IsCollapsed;
     public event Action? LocalCommandStarting;
@@ -48,22 +49,6 @@ public sealed class SessionToolbarPresenter : Grid
         AutomationProperties.SetName(_revealHost, "Collapsed connection toolbar");
         _collapse = toolbar.AddCommand("Collapse connection toolbar", "\uE70E", () => SetCollapsedAsync(true));
         _collapse.Visibility = Visibility.Collapsed;
-        _expand = new Button
-        {
-            Content = new FontIcon { Glyph = "\uE70D", FontSize = 14 },
-            Width = 52, Height = 28, Padding = new Thickness(12, 4, 12, 4),
-            CornerRadius = new CornerRadius(0, 0, 8, 8)
-        };
-        AutomationProperties.SetName(_expand, "Expand connection toolbar");
-        AutomationProperties.SetHelpText(_expand, "Show the session commands. The remote desktop stays connected.");
-        AutomationProperties.SetAutomationId(_expand, "remotespace-session-command-" + Guid.NewGuid().ToString("N"));
-        ToolTipService.SetToolTip(_expand, "Expand connection toolbar");
-        _expand.Click += async (_, _) =>
-        {
-            try { await SetCollapsedAsync(false); }
-            catch (Exception error) { CommandFailed?.Invoke(error.Message); }
-        };
-        _revealPanel.Children.Add(_expand);
         Loaded += (_, _) =>
         {
             // Attach only after the retained geometry host is live. Collapse
@@ -105,7 +90,7 @@ public sealed class SessionToolbarPresenter : Grid
             ApplyState();
             // Local focus remains reachable after either command. It never
             // moves to the remote view as part of a toolbar-only interaction.
-            (value ? _expand : _collapse).Focus(FocusState.Programmatic);
+            (value ? _expand : _collapse)?.Focus(FocusState.Programmatic);
         }
         catch (OperationCanceledException) when (pending.IsCancellationRequested || !IsLoaded) { }
         finally { if (ReferenceEquals(_pending, pending)) _pending = null; }
@@ -128,5 +113,28 @@ public sealed class SessionToolbarPresenter : Grid
         // user transition; neither normal layout nor remote frames rebuild it.
         _toolbarHost.ShowPanel(_state.IsCollapsed ? null : _toolbarPanel);
         _revealHost.ShowPanel(_state.IsCollapsed ? _revealPanel : null);
+        if (_state.IsCollapsed) EnsureRevealButton();
+    }
+    private void EnsureRevealButton()
+    {
+        if (_expand is not null) return;
+        _expand = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE70D", FontSize = 14 },
+            Width = 52, Height = 28, Padding = new Thickness(12, 4, 12, 4),
+            CornerRadius = new CornerRadius(0, 0, 8, 8)
+        };
+        // Attach before naming: a detached, named input can otherwise register
+        // at the application's fallback root despite having no painted control.
+        _revealPanel.Children.Add(_expand);
+        AutomationProperties.SetName(_expand, "Expand connection toolbar");
+        AutomationProperties.SetHelpText(_expand, "Show the session commands. The remote desktop stays connected.");
+        AutomationProperties.SetAutomationId(_expand, "remotespace-session-command-" + Guid.NewGuid().ToString("N"));
+        ToolTipService.SetToolTip(_expand, "Expand connection toolbar");
+        _expand.Click += async (_, _) =>
+        {
+            try { await SetCollapsedAsync(false); }
+            catch (Exception error) { CommandFailed?.Invoke(error.Message); }
+        };
     }
 }

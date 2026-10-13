@@ -78,3 +78,20 @@ Desktop/browser compilation and both full application browser suites remain
 required. Hardware GPU throughput, native OS Escape behavior across platforms,
 assistive-technology certification, timed auto-hide and touch/IME parity are not
 established by these tests.
+
+## Reveal control lifecycle regression
+
+The first complete toolbar run at d405f1a retained correct full-screen desktop
+geometry and pixels, and the held Enter did not collapse the bar prematurely.
+It exposed a separate zero-sized **Expand connection toolbar** input at the
+application's fallback semantic root while the reveal was not painted. Naming
+and adding that button to a detached panel during construction registered it
+before its collapsed-only geometry owner was live.
+
+The reveal input is now created once, only after its visible SemanticLayoutHost
+and empty panel are attached, then attached before its accessible name is set.
+Later transitions reuse that same bounded control through normal loaded/unloaded
+ownership. No detached input properties are patched. The original absent-peer
+assertion remains, with an additional pre-gesture absence check and explicit
+local-focus checks after both transitions. No DOM metadata, raster thresholds,
+keyboard events or remote input coordinates are rewritten by the tests.

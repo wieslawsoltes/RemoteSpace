@@ -14,6 +14,7 @@ async def validate_toolbar_collapse(page, metrics, output, passed, expected_inpu
     if not identity:
         raise AssertionError('The live desktop must have a semantic identity before collapse.')
     original = await desktop.bounding_box()
+    await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_have_count(0)
     # A real Capture download made just before this test is the pixel oracle.
     # Repeated local toolbar changes must not consume more retained export URLs.
 
@@ -46,6 +47,7 @@ async def validate_toolbar_collapse(page, metrics, output, passed, expected_inpu
             await page.keyboard.press('Space')
         expand = page.get_by_role('button', name='Expand connection toolbar', exact=True)
         await expect(expand).to_be_visible()
+        await expect(expand).to_be_focused()
         await expect(page.get_by_label('Connection toolbar buttons', exact=True)).to_have_count(0)
         for name in ('Fit', 'Display settings', 'Remote resolution', 'Clipboard', 'Keyboard', 'Session actions', 'Exit full screen'):
             await expect(page.get_by_role('button', name=name, exact=True)).to_have_count(0)
@@ -61,6 +63,7 @@ async def validate_toolbar_collapse(page, metrics, output, passed, expected_inpu
         await focus_command(page, expand)
         await page.keyboard.press('Space' if iteration == 0 else 'Enter')
         await expect(collapse).to_be_visible()
+        await expect(collapse).to_be_focused()
         await expect(expand).to_have_count(0)
         await geometry(False)
         if await desktop.get_attribute('id') != identity:
