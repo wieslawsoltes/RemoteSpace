@@ -6,6 +6,7 @@ import time
 from playwright.async_api import expect
 from driver import command
 from fullscreen_pixels import validate_fullscreen_pixels
+from toolbar_collapse import validate_toolbar_collapse
 
 async def validate_session_fullscreen(page, metrics, output, passed):
     sizes = list(metrics['sizes'])
@@ -55,6 +56,8 @@ async def validate_session_fullscreen(page, metrics, output, passed):
         await page.wait_for_function('document.fullscreenElement === null')
         await expect(page.get_by_role('button', name='Full screen', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_have_count(0)
+        await expect(page.get_by_role('button', name='Collapse connection toolbar', exact=True)).to_have_count(0)
+        await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_have_count(0)
         await expect(page.get_by_role('button', name='About RemoteSpace', exact=True)).to_be_visible()
         await expect(page.get_by_role('tab', name='Loopback desktop', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='Close Tab', exact=True)).to_be_visible()
@@ -73,10 +76,13 @@ async def validate_session_fullscreen(page, metrics, output, passed):
             raise AssertionError('A local fullscreen transition changed server resolution or reconnected the session.')
 
     await entered('18-fullscreen-session.png')
+    input_before = await validate_toolbar_collapse(page, metrics, output, passed, input_before)
     await command(page, 'Exit full screen')
     await restored()
     passed('Full screen displays the real remote desktop beneath the pinned toolbar and restores the workspace without resizing the server')
     await entered('19-fullscreen-external-exit.png')
+    await command(page, 'Collapse connection toolbar')
+    await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_be_visible()
     # Exercise a real host-level exit, not an application command or synthetic
     # fullscreenchange. Chromium's headless Escape accelerator differs by host;
     # the public platform exit guarantees a real event for this lifecycle test.
