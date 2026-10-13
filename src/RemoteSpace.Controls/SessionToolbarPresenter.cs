@@ -98,6 +98,9 @@ public sealed class SessionToolbarPresenter : Grid
             await CommandActivation.WaitForReleaseAsync(this, pending.Token);
             if (pending.IsCancellationRequested || !IsLoaded) return;
             LocalCommandStarting?.Invoke();
+            // A host callback may synchronously end fullscreen or unload this
+            // presenter. Recheck admission before committing visual state.
+            if (pending.IsCancellationRequested || !IsLoaded) return;
             if (!_state.SetCollapsed(value)) return;
             ApplyState();
             // Local focus remains reachable after either command. It never
