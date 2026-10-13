@@ -46,6 +46,15 @@ presenter or leave fullscreen. Command errors remain visible through the app's
 existing error surface. There is no idle polling, pointer-motion subscription,
 per-frame reparenting or opacity-only hiding of focusable controls.
 
+The release guard combines the ordinary native key state with the browser
+adapter's existing bounded Enter/Space ownership. The compiled Uno browser
+runtime registers its native keyboard source on document bubbling; the adapter
+intentionally stops owned toolbar keys before that point. Those keys therefore
+cannot be inferred from the native keyboard source alone. The adapter exposes
+only a boolean held-state query; it retains no new input contents, changes no
+routing, and clears it on matching release, blur, pagehide and disposal. An active
+release wait queries that state, but no work is scheduled while idle.
+
 ## Validation
 
 The managed state tests exercise rejection, duplicate notifications, expanded

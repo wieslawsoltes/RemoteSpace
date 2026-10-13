@@ -78,7 +78,10 @@ public static class CommandActivation
         void Tick(object? sender, object args)
         {
             if (cancellationToken.IsCancellationRequested) { Finish(new OperationCanceledException()); return; }
-            bool pressed = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Enter) & CoreVirtualKeyStates.Down) != 0 ||
+            // Owned browser commands deliberately never reach Uno's native
+            // keyboard source. Their existing bounded adapter state must also
+            // participate, or hiding a control can outrun its physical keyup.
+            bool pressed = BrowserSemanticInput.IsActivationHeld || (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Enter) & CoreVirtualKeyStates.Down) != 0 ||
                 (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Space) & CoreVirtualKeyStates.Down) != 0 ||
                 (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Escape) & CoreVirtualKeyStates.Down) != 0;
             if (!pressed) Finish();
