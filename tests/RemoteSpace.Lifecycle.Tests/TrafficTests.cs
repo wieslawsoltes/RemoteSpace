@@ -60,6 +60,8 @@ internal static class TrafficTests
             Check(result.SequenceEqual(bytes.Skip(1).Take(41)), "payload is not changed or copied out of order");
             Check(stream.ReadByte() == -1 && await stream.ReadAsync(result.AsMemory()) == 0, "EOF is not an extra byte");
             Check(meter.Snapshot.ReceivedBytes == 41, "received counts actual short reads");
+            Reject(() => { int unexpected = stream.ReadAsync(null!, 0, 0, CancellationToken.None).GetAwaiter().GetResult(); throw new Exception($"Null buffer read succeeded: {unexpected}."); });
+            Reject(() => stream.WriteAsync(null!, 0, 0, CancellationToken.None));
             await stream.FlushAsync(); stream.SetLength(42); stream.Seek(0, SeekOrigin.Begin);
             Check(meter.Snapshot.SentBytes == 41, "seek length flush are not traffic");
             using var copied = new MemoryStream(); await stream.CopyToAsync(copied);
@@ -86,7 +88,7 @@ internal static class TrafficTests
         try { await wrapper.WriteAsync(bytes.AsMemory()); } catch (IOException) { failed = true; }
         Check(failed && ownedMeter.Snapshot.SentBytes == 96, "failed write doesn't claim full buffer delivered");
         failed = false;
-        try { await wrapper.ReadAsync(readBuffer.AsMemory()); } catch (IOException) { failed = true; }
+        try { int unexpected = await wrapper.ReadAsync(readBuffer.AsMemory()); throw new Exception($"Expected read failure, received {unexpected} bytes."); } catch (IOException) { failed = true; }
         Check(failed && ownedMeter.Snapshot.ReceivedBytes == 3, "failed read isn't counted");
         await wrapper.DisposeAsync(); wrapper.Dispose(); await wrapper.DisposeAsync();
         Check(owned.DisposeCalls == 1 && !wrapper.CanRead && !wrapper.CanWrite, "underlying owner disposed exactly once");

@@ -41,8 +41,11 @@ public sealed class TrafficCountingStream : Stream
     {
         Check(); int value = _inner.ReadByte(); if (value >= 0) _traffic.AddReceived(1); return value;
     }
-    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
-        ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        return ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+    }
     public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
         Check(); var pending = _inner.ReadAsync(buffer, cancellationToken);
@@ -62,8 +65,11 @@ public sealed class TrafficCountingStream : Stream
         Check(); _inner.Write(buffer); _traffic.AddSent(buffer.Length);
     }
     public override void WriteByte(byte value) { Check(); _inner.WriteByte(value); _traffic.AddSent(1); }
-    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
-        WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+    public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        return WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+    }
     public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
     {
         Check(); var pending = _inner.WriteAsync(buffer, cancellationToken);
