@@ -5,10 +5,12 @@ using RemoteSpace.Core;
 namespace RemoteSpace.Transport;
 
 /// <summary>Browser-capable session adapter. Authentication tokens and passwords are sent once, never in the URL.</summary>
-public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
+public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource, IRemoteSessionTraffic
 {
     private readonly Uri _endpoint;
     private string? _token;
+    private readonly SessionTrafficCounter _traffic = new(SessionTrafficLayer.WebSocketPayload);
+    public SessionTrafficSnapshot Traffic => _traffic.Snapshot;
     private readonly ClientWebSocket _socket = new();
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
@@ -55,6 +57,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
                 {
                     operation = "receiving a frame";
                     var packet = await BridgeWire.ReceiveAsync(_socket, established ? ct.Token : connect.Token); if (packet is null) break;
+                    _traffic.AddReceived(packet.Payload.Length);
                     if (packet.Binary) { operation = "applying desktop pixels"; SurfaceUpdated?.Invoke(BridgeWire.ParseSurface(packet.Payload)); continue; }
                     var message = BridgeWire.ParseControl(packet.Payload);
                     operation = "processing " + message.Type;
@@ -115,7 +118,7 @@ public sealed partial class BridgeSession : IRemoteSession, IRemoteCursorSource
         {
             ct.ThrowIfCancellationRequested();
             if (_stop.IsCancellationRequested) throw new OperationCanceledException("The session is stopping.");
-            try { await _socket.SendAsync(data.AsMemory(), WebSocketMessageType.Text, true, ct); }
+            try { await _socket.SendAsync(data.AsMemory(), WebSocketMessageType.Text, true, ct); _traffic.AddSent(data.Length); }
             catch { StopTransport(); throw; }
         }
         finally { _writer.Release(); }

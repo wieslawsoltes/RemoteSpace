@@ -12,8 +12,10 @@ using RemoteSpace.Security;
 namespace RemoteSpace.Client;
 
 /// <summary>Single-use RDP session with one receive loop, serialized writes, cancellation and bounded packet decoding.</summary>
-public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource
+public sealed partial class RdpSession : IRemoteSession, IRemoteCursorSource, IRemoteSessionTraffic
 {
+    private readonly SessionTrafficCounter _traffic = new(SessionTrafficLayer.TcpStream);
+    public SessionTrafficSnapshot Traffic => _traffic.Snapshot;
     private readonly SemaphoreSlim _writer = new(1, 1);
     private readonly CancellationTokenSource _stop = new();
     private readonly SessionLifetime _lifetime = new();
