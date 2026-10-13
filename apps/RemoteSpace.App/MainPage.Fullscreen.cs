@@ -51,7 +51,8 @@ public sealed partial class MainPage
             throw new InvalidOperationException("Select a remote session before entering full screen.");
         if (_windowFullscreen.IsFullScreen && ReferenceEquals(_fullScreenSession, opened))
         {
-            await _windowFullscreen.ExitAsync();
+            // This is an explicit user exit, unlike automatic session teardown.
+            await _windowFullscreen.SetAsync(false);
             return;
         }
         _fullScreenSession = opened;

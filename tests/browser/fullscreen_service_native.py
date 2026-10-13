@@ -55,6 +55,31 @@ async def run(output):
             await page.click('#dispose'); await page.wait_for_function('document.fullscreenElement === null && result === false')
             assert len(await page.evaluate('changes')) == 11
             checks.append('Disposing an active owner exits fullscreen and removes its notification listener')
+            # A real host entry not initiated by the controller must survive
+            # automatic session close, even when it uses documentElement too.
+            await page.set_content('<!doctype html><button id="host">Host entry</button><button id="close">Session closes</button>')
+            await page.add_script_tag(type='module',content=source+'''
+                globalThis.changes=[];globalThis.result=null;
+                globalThis.controller=createController(document,value=>changes.push(value));
+                document.querySelector('#host').onclick=()=>{
+                    result=null;
+                    document.documentElement.requestFullscreen().then(()=>result=true,e=>result={error:e.message});
+                };
+                document.querySelector('#close').onclick=()=>{
+                    result=null;controller.exit().then(value=>result=value,e=>result={error:e.message});
+                };
+            ''')
+            await page.click('#host')
+            await page.wait_for_function('result === true && document.fullscreenElement === document.documentElement')
+            await page.click('#close')
+            await page.wait_for_function('result !== null')
+            assert await page.evaluate('result') is True
+            assert await page.evaluate('document.fullscreenElement === document.documentElement')
+            await page.evaluate('controller.dispose()')
+            assert await page.evaluate('document.fullscreenElement === document.documentElement')
+            await page.evaluate('document.exitFullscreen()')
+            assert await page.evaluate('changes') == [True]
+            checks.append('Automatic terminal exit and disposal preserve real fullscreen acquired by another host')
             # The sandbox creates an opaque-origin child; fullscreen is denied
             # by its real permissions policy even after clicking its own button.
             denied = '<!doctype html><button id="enter">Enter</button><button id="terminal">Enter and close</button><script type="module">'+source+'''

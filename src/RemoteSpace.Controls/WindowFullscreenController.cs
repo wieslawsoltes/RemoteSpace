@@ -67,7 +67,9 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
     /// <summary>Terminal exit for session close/end. Unlike a new user toggle,
     /// this shares one pending exit and drains any already admitted browser
     /// request first. A failed entry does not prevent teardown; an exit failure
-    /// is still reported. No new fullscreen entry is admitted while draining.</summary>
+    /// is still reported. Unowned host fullscreen is preserved; an explicit
+    /// user exit can instead call SetAsync(false). No new entry is admitted
+    /// while the terminal operation drains.</summary>
     public Task ExitAsync()
     {
         VerifyAccess(); ObjectDisposedException.ThrowIf(_disposed, this);
@@ -75,6 +77,11 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
 #if __WASM__
         return ExitBrowser(_id);
 #else
+        if (!_ownsNativeFullscreen)
+        {
+            Publish(ApplicationView.GetForCurrentView().IsFullScreenMode);
+            return Task.CompletedTask;
+        }
         return SetAsync(false);
 #endif
     }
@@ -179,6 +186,10 @@ export function createController(doc, changed) {
             terminalExit = Promise.resolve().then(async () => {
                 if (operation) { try { await operation; } catch { /* The initiating caller observes its error. */ } }
                 if (disposed) return false;
+                // Automatic teardown cannot leave another host's fullscreen,
+                // including one acquired while our pending entry was denied.
+                // Return the real state rather than claiming an exit occurred.
+                if (!owned) return publish();
                 return change(false, true);
             }).finally(() => { closing = false; terminalExit = undefined; });
             return terminalExit;

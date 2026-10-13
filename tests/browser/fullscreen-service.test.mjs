@@ -157,3 +157,20 @@ test('registered terminal exit drains its owner and rejects a missing registrati
     try {api.register('closing',()=>{});await api.set('closing',true);assert.equal(await api.exit('closing'),false);await api.unregister('closing');await assert.rejects(api.exit('missing'),/not initialized/);}
     finally {delete globalThis.document;await f.control.dispose();}
 });
+
+test('terminal close preserves pre-existing unowned document fullscreen',async()=>{
+    const f=fixture();f.doc.fullscreenElement=f.doc.documentElement;f.notify();
+    assert.equal(await f.control.exit(),true);assert.deepEqual(f.calls,[]);
+    assert.equal(f.doc.fullscreenElement,f.doc.documentElement);await f.control.dispose();
+});
+test('terminal close after denied entry does not exit unrelated document fullscreen',async()=>{
+    const f=fixture(),d=deferred();f.setEnter(()=>d.promise);
+    const entry=f.control.set(true),closing=f.control.exit();
+    f.doc.fullscreenElement=f.doc.documentElement;f.notify();d.reject(Error('denied'));
+    await assert.rejects(entry,/denied/);assert.equal(await closing,true);
+    assert.equal(f.doc.fullscreenElement,f.doc.documentElement);assert.deepEqual(f.calls,['enter']);await f.control.dispose();
+});
+test('explicit user exit can leave pre-existing fullscreen without claiming it for automatic teardown',async()=>{
+    const f=fixture();f.doc.fullscreenElement=f.doc.documentElement;f.notify();
+    assert.equal(await f.control.set(false),false);assert.deepEqual(f.calls,['exit']);await f.control.dispose();
+});
