@@ -100,3 +100,14 @@ to the same remote pixel, not merely an enlarged HTML/semantic rectangle. Captur
 and entry commands must emit no remote keystrokes; deliberate pointer packets
 are accounted separately before testing the exit commands. This retains the same
 original remote framebuffer and does not fabricate a test surface.
+
+
+The restoration baseline is taken only after validating the windowed image and
+inverse pointer mapping. The preceding narrow-window keyboard test restores the
+browser viewport, whose resize promise can precede Uno's responsive layout and
+paint. Its immediate rectangle had a new width but still the old narrow-padding
+origin; recording that mixed frame incorrectly demanded a 16-pixel offset after
+returning from fullscreen. The test now verifies the windowed baseline against
+actual captured pixels before saving its geometry, retains the one-pixel restore
+tolerance, and reports both numeric rectangles on failure. Fullscreen still must
+match the original raster and return to the same settled windowed view.

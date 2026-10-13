@@ -11,6 +11,13 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     sizes = list(metrics['sizes'])
     layouts = metrics['layout_requests']
     input_before = metrics['input_packets']
+    # The previous scenario restores a narrow viewport immediately before this
+    # test. Browser resize completion precedes Uno's responsive layout and paint;
+    # do not preserve a mixed old-origin/new-width rectangle as the baseline.
+    # Validate its actual pixels and inverse input before recording the settled
+    # windowed geometry. This adds a real check instead of loosening restoration.
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    input_before = await validate_fullscreen_pixels(page, metrics, output, '18-windowed-baseline', input_before)
     baseline = await page.get_by_label('Remote desktop', exact=True).bounding_box()
     async def entered(name):
         nonlocal input_before
@@ -44,7 +51,6 @@ async def validate_session_fullscreen(page, metrics, output, passed):
                 raise AssertionError('Full screen did not expand the real remote surface to the window beneath its pinned toolbar: '+str(bounds))
             await asyncio.sleep(.1)
     async def restored():
-        nonlocal input_before
         await page.wait_for_function('document.fullscreenElement === null')
         await expect(page.get_by_role('button', name='Full screen', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_have_count(0)
@@ -59,7 +65,8 @@ async def validate_session_fullscreen(page, metrics, output, passed):
             if bounds and all(abs(bounds[key] - baseline[key]) <= 1 for key in ('x', 'y', 'width', 'height')):
                 break
             if time.monotonic() >= deadline:
-                raise AssertionError('Exiting fullscreen did not restore the original windowed view geometry.')
+                raise AssertionError('Exiting fullscreen did not restore the original windowed view geometry: ' +
+                                     json.dumps({'before': baseline, 'after': bounds}))
             await asyncio.sleep(.1)
         if metrics['sizes'] != sizes or metrics['layout_requests'] != layouts:
             raise AssertionError('A local fullscreen transition changed server resolution or reconnected the session.')
