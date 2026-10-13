@@ -80,3 +80,25 @@ while the browser-to-RDP check still requires exactly four/six input events.
 RemoteSpace does not synthesize that server-only release. The fixture behavior
 is explicit in [sendDownUpKeyEvent and the Tab case](https://github.com/neutrinolabs/xorgxrdp/blob/v0.10.5/xrdpkeyb/rdpKeyboard.c);
 the two observation points must not be treated as identical event streams.
+
+The unchanged rapid scrollbar-handoff regression also exposed a remaining
+focus race in the existing navigation adapter. Calling native Focus while
+applying a target-owned command still scheduled a later DOM focus reply. That
+reply could arrive after the next scrollbar had been focused but before its
+key event, leaving the vertical axis at Home instead of End. Navigation now
+changes only the explicitly owned native scrollbar range and does not request
+focus. The physical event's DOM target is already the correct owner. The real
+browser test retains its rapid Home/End sequence and original pixel thresholds,
+and also requires focus to remain on the last chosen scrollbar. Native desktop
+input continues through the existing native key handler; broader assistive
+technology qualification is not established by this focused browser regression.
+
+Local non-navigation keys on an owned scrollbar now keep their browser default
+(for example Tab traversal) without entering the document-level remote input
+router. The owning view releases any tracked remote keys on the first local
+keyboard gesture, so removing native-focus writes cannot leave remote modifiers
+held. The single-argument registration API remains available; hosts can supply
+an optional local-input callback. Unregistered controls and already-handled
+events retain their prior routing. Unit cases cover these local defaults and
+release notifications; the live test also sends ordinary text and Escape while
+a scrollbar is focused and requires no additional remote input packets.

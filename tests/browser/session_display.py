@@ -107,6 +107,11 @@ async def validate_session_display(page, metrics, output, passed):
         await horizontal.focus(); await page.keyboard.press('End')
         await vertical.focus(); await page.keyboard.press('End')
     surface, width, height, ox, oy = await compare_view('06-zoom-bottom-right.png', True)
+    await expect(vertical).to_be_focused()
+    # Local scrollbar focus must not send ordinary typing or Escape to the
+    # remote surface, even when its native focus notification is asynchronous.
+    await page.keyboard.press('q')
+    await page.keyboard.press('Escape')
     await asyncio.sleep(.2)
     if metrics['input_packets'] != input_before:
         raise AssertionError('Local scrollbar keyboard input escaped into the remote session.')
