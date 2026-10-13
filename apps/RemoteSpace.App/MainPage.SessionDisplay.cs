@@ -50,6 +50,7 @@ public sealed partial class MainPage
 
     private void AddSessionActions(SessionCommandBar bar, OpenSession opened)
     {
+        AddKeyboardCommands(bar, opened);
         bar.AddMenu("Session actions", "\uE712", () =>
         {
             var menu = new MenuFlyout(); bool active = opened.Session.State == SessionState.Active;

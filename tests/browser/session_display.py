@@ -12,6 +12,7 @@ from PIL import Image
 from playwright.async_api import expect
 from driver import command, navigate, focus_command
 from session_resolution import validate_custom_resolution
+from keyboard_commands import validate_keyboard_commands
 
 async def validate_session_display(page, metrics, output, passed):
     sizes_before = list(metrics['sizes'])
@@ -192,3 +193,4 @@ async def validate_session_display(page, metrics, output, passed):
     passed('A hidden session retains server updates and presents them when selected again')
 
     await validate_custom_resolution(page, metrics, output, passed)
+    await validate_keyboard_commands(page, metrics, output, passed)
