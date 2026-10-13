@@ -21,9 +21,20 @@ public sealed partial class MainPage
         if (visible && !_tabsVisible) RestoreSessionTabs();
         _tabsVisible = visible;
         var selected = _sessions.FirstOrDefault(s => Sessions.SelectedItem == s.Tab);
-        SessionContent.ShowPanel(_section == "sessions" ? selected?.Panel : null);
+        var live = visible ? selected : null;
+        if (_isSessionFullscreen)
+        {
+            SessionContent.ShowPanel(null);
+            _fullScreenPanel.ShowPanel(ReferenceEquals(live, _fullScreenSession) ? live?.Panel : null);
+        }
+        else
+        {
+            _fullScreenPanel.ShowPanel(null);
+            SessionContent.ShowPanel(live?.Panel);
+        }
         foreach (var session in _sessions)
-            session.View.IsPresentationActive = _section == "sessions" && ReferenceEquals(selected, session);
+            session.View.IsPresentationActive = ReferenceEquals(live, session) &&
+                (!_isSessionFullscreen || ReferenceEquals(_fullScreenSession, session));
     }
     private void RestoreSessionTabs()
     {

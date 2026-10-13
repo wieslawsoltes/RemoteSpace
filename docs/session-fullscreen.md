@@ -38,7 +38,8 @@ cleanup so another owner cannot race that exit. Native desktop uses the public
 ApplicationView API and size-change observations. The complete Windows/macOS/Linux
 native full-screen/OS-shortcut matrix has not been qualified merely by compilation.
 
-The app hides/restores layout elements rather than reconstructing the remote view.
+The app moves the same retained session panel between a windowed host and a root-level
+fullscreen host rather than reconstructing the remote view.
 Only the small native session-tab selector set is refreshed when returning, using
 the existing pinned-Uno accessibility workaround. No new RDP negotiation, remote
 resize request, synthetic surface or alternate client is introduced.
@@ -62,3 +63,20 @@ artifacts, not test source alone, establish passing execution.
 
 Platform behavior references: [Fullscreen standard](https://fullscreen.spec.whatwg.org/)
 and [requestFullscreen](https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen).
+
+## Geometry ownership correction
+
+The first full Uno test entered real browser fullscreen and painted the desktop,
+but the semantic NavigationView content presenter retained its former 105-pixel
+horizontal offset. Its width updated while its origin did not, leaving toolbar
+hit targets outside the window. This was a product geometry bug, not a failed
+fullscreen permission request. The pixel/geometry thresholds were not relaxed.
+
+A separate root-level semantic host now owns the retained panel while fullscreen
+is active. The normal navigation tree is hidden unchanged, instead of trying to
+remove its pane in place. The same toolbar/view/framebuffer instances move through
+the normal native removal/addition lifecycle once per transition; no per-frame
+reparenting or browser coordinate adjustments are used. An InfoBar in the fullscreen
+host keeps command failures visible even while the workspace is hidden. Tests also
+require all seven toolbar targets to remain in the window and the remote view to
+belong to the appropriate host before and after entry/exit.

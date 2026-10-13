@@ -126,5 +126,9 @@ public sealed partial class MainPage : Page
     }
     private void ApplyTheme(WorkspaceTheme theme) => RequestedTheme = theme switch { WorkspaceTheme.Light => ElementTheme.Light, WorkspaceTheme.Dark => ElementTheme.Dark, _ => ElementTheme.Default };
     private void ShowError(string message) => ShowMessage("RemoteSpace", message, InfoBarSeverity.Error);
-    private void ShowMessage(string title, string message, InfoBarSeverity severity) { Notice.Title = title; Notice.Message = message; Notice.Severity = severity; Notice.IsOpen = true; }
+    private void ShowMessage(string title, string message, InfoBarSeverity severity)
+    {
+        var notice = _isSessionFullscreen ? _fullScreenNotice : Notice;
+        notice.Title = title; notice.Message = message; notice.Severity = severity; notice.IsOpen = true;
+    }
 }

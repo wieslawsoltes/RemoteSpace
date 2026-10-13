@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using RemoteSpace.Controls;
 using RemoteSpace.Core;
 
@@ -11,9 +12,25 @@ public sealed partial class MainPage
     private WindowFullscreenController _windowFullscreen = null!;
     private OpenSession? _fullScreenSession;
     private bool _isSessionFullscreen;
+    private readonly SemanticLayoutHost _fullScreenRoot = new() { Visibility = Visibility.Collapsed };
+    private readonly SemanticLayoutHost _fullScreenPanel = new();
+    private readonly Grid _fullScreenLayout = new();
+    private readonly InfoBar _fullScreenNotice = new() { IsClosable = true };
 
     private void InitializeFullscreen()
     {
+        // A separate root avoids NavigationView's retained content-presenter
+        // offset when its pane disappears. This is a normal native visual tree,
+        // not a correction to browser coordinates or a second remote surface.
+        Grid.SetRowSpan(_fullScreenRoot, 3);
+        ShellLayout.Children.Add(_fullScreenRoot);
+        AutomationProperties.SetName(_fullScreenRoot, "Full-screen session layout");
+        AutomationProperties.SetName(_fullScreenPanel, "Full-screen remote session");
+        _fullScreenRoot.Background = new SolidColorBrush(Microsoft.UI.Colors.Black);
+        _fullScreenLayout.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        _fullScreenLayout.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        _fullScreenLayout.Children.Add(_fullScreenNotice);
+        Grid.SetRow(_fullScreenPanel, 1); _fullScreenLayout.Children.Add(_fullScreenPanel);
         _windowFullscreen = new(this);
         _windowFullscreen.Changed += active =>
         {
@@ -70,18 +87,28 @@ public sealed partial class MainPage
     {
         if (_isSessionFullscreen == active) return;
         _isSessionFullscreen = active;
-        ShellLayout.RowDefinitions[0].Height = new GridLength(active ? 0 : 40);
-        TitleBar.Visibility = Status.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
-        Navigation.IsPaneVisible = !active;
-        Heading.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
-        Sessions.Visibility = active ? Visibility.Collapsed : Visibility.Visible;
-        bool narrow = WorkspaceContent.ActualWidth < 650;
-        WorkspaceContent.Padding = active ? new Thickness(0) : new Thickness(narrow ? 12 : 28, 24, narrow ? 12 : 28, 12);
-        WorkspaceFrame.BorderThickness = active ? new Thickness(0) : new Thickness(1, 1, 0, 0);
-        WorkspaceFrame.CornerRadius = active ? new CornerRadius(0) : new CornerRadius(8, 0, 0, 0);
-        // Re-entry of the pinned native TabView needs fresh selector peers, not
-        // new sessions or surfaces. The selected live panel stays attached.
-        if (!active && _sessions.Count > 0) RestoreSessionTabs();
+        if (active)
+        {
+            SessionContent.ShowPanel(null);
+            _fullScreenNotice.IsOpen = false;
+            _fullScreenRoot.Visibility = Visibility.Visible;
+            _fullScreenRoot.ShowPanel(_fullScreenLayout);
+            RefreshSessionPresentation();
+            Navigation.Visibility = TitleBar.Visibility = Status.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _fullScreenPanel.ShowPanel(null);
+            _fullScreenRoot.ShowPanel(null);
+            _fullScreenRoot.Visibility = Visibility.Collapsed;
+            Navigation.Visibility = TitleBar.Visibility = Status.Visibility = Visibility.Visible;
+            bool narrow = WorkspaceContent.ActualWidth < 650;
+            WorkspaceContent.Padding = new Thickness(narrow ? 12 : 28, 24, narrow ? 12 : 28, 12);
+            // Recreate only selectors whose semantic subtree was hidden. The
+            // same live panel, view, framebuffer and connection are retained.
+            if (_sessions.Count > 0) RestoreSessionTabs();
+            RefreshSessionPresentation();
+        }
         foreach (var session in _sessions)
         {
             if (session.FullScreenButton is not { } button) continue;

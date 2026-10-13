@@ -16,6 +16,16 @@ async def validate_session_fullscreen(page, metrics, output, passed):
         await page.wait_for_function('document.fullscreenElement === document.documentElement')
         await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='About RemoteSpace', exact=True)).not_to_be_visible()
+        host = page.get_by_label('Full-screen remote session', exact=True)
+        await expect(host.get_by_label('Remote desktop', exact=True)).to_be_visible()
+        await expect(page.get_by_role('option', name='Devices', exact=True)).not_to_be_visible()
+        for label in ('Fit', 'Display settings', 'Remote resolution', 'Clipboard', 'Keyboard', 'Session actions', 'Exit full screen'):
+            button = host.get_by_role('button', name=label, exact=True)
+            await expect(button).to_be_visible()
+            box = await button.bounding_box()
+            width = await page.evaluate('innerWidth')
+            if not box or box['x'] < 0 or box['x'] + box['width'] > width + 1:
+                raise AssertionError('A fullscreen command has an out-of-window hit target: ' + label)
         until = time.monotonic() + 15
         while True:
             size = await page.evaluate('({width:innerWidth,height:innerHeight})')
@@ -37,7 +47,8 @@ async def validate_session_fullscreen(page, metrics, output, passed):
         await expect(page.get_by_role('button', name='About RemoteSpace', exact=True)).to_be_visible()
         await expect(page.get_by_role('tab', name='Loopback desktop', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='Close Tab', exact=True)).to_be_visible()
-        await expect(page.get_by_label('Remote desktop', exact=True)).to_be_visible()
+        await expect(page.get_by_label('Active remote session', exact=True).get_by_label('Remote desktop', exact=True)).to_be_visible()
+        await expect(page.get_by_label('Full-screen remote session', exact=True)).not_to_be_visible()
         if metrics['sizes'] != sizes or metrics['layout_requests'] != layouts:
             raise AssertionError('A local fullscreen transition changed server resolution or reconnected the session.')
 
