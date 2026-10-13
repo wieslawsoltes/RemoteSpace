@@ -57,7 +57,8 @@ async def validate_fullscreen_pixels(page, metrics, output, name, expected_input
         if metrics['input_packets'] > before and pointer and abs(pointer['X'] - rx) <= 1 and abs(pointer['Y'] - ry) <= 1:
             break
         if time.monotonic() >= deadline:
-            raise AssertionError('Fullscreen pointer input does not correspond to the displayed remote pixel.')
+            raise AssertionError('The pointer does not correspond to the displayed remote pixel: ' +
+                                 json.dumps({'expected': {'X': rx, 'Y': ry}, 'observed': pointer, 'view': surface}))
         await asyncio.sleep(.05)
     # Leave the pointer on local toolbar chrome before resizing the window again;
     # that avoids counting layout-induced motion as an activation keystroke.

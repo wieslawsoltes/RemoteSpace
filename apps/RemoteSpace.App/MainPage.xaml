@@ -26,7 +26,8 @@
         <Grid x:Name="WorkspaceContent" Padding="28,24,28,12" RowDefinitions="Auto,Auto,*" SizeChanged="WorkspaceSizeChanged">
           <TextBlock x:Name="Heading" Text="Devices" FontSize="28" FontWeight="SemiBold" />
           <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" Margin="0,12,0,8" />
-          <Grid Grid.Row="2">
+          <controls:SemanticLayoutHost Grid.Row="2" AutomationProperties.Name="Workspace sections">
+          <Grid>
             <Grid x:Name="DevicePanel" RowDefinitions="Auto,Auto,*">
               <Grid x:Name="DeviceToolbar" Margin="0,24,0,16" ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto">
                 <TextBox x:Name="Search" PlaceholderText="Search devices" AutomationProperties.Name="Search devices" TextChanged="SearchChanged" MaxWidth="360" HorizontalAlignment="Left" Width="360" />
@@ -83,6 +84,7 @@
               <TextBlock Text="RemoteApp, Windows 365, Azure Virtual Desktop, and Microsoft account workspace discovery are not implemented in this preview. Saved PCs are local connections, not cloud subscriptions." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             </StackPanel>
           </Grid>
+          </controls:SemanticLayoutHost>
         </Grid>
       </Border>
     </NavigationView>

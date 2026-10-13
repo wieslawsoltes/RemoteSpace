@@ -76,7 +76,7 @@ public sealed partial class MainPage : Page
     {
         if (DeviceToolbar is null) return;
         bool narrow = args.NewSize.Width < 650;
-        WorkspaceContent.Padding = _isSessionFullscreen ? new Thickness(0) : new Thickness(narrow ? 12 : 28, 24, narrow ? 12 : 28, 12);
+        WorkspaceContent.Padding = new Thickness(narrow ? 12 : 28, 24, narrow ? 12 : 28, 12);
         Grid.SetRow(DeviceCommands, narrow ? 1 : 0); Grid.SetColumn(DeviceCommands, narrow ? 0 : 1);
         Grid.SetColumnSpan(DeviceCommands, narrow ? 2 : 1); Grid.SetColumnSpan(Search, narrow ? 2 : 1);
         DeviceCommands.Margin = narrow ? new Thickness(0, 12, 0, 0) : new Thickness(0);

@@ -102,12 +102,25 @@ are accounted separately before testing the exit commands. This retains the same
 original remote framebuffer and does not fabricate a test surface.
 
 
+## Responsive windowed geometry regression
+
 The restoration baseline is taken only after validating the windowed image and
-inverse pointer mapping. The preceding narrow-window keyboard test restores the
-browser viewport, whose resize promise can precede Uno's responsive layout and
-paint. Its immediate rectangle had a new width but still the old narrow-padding
-origin; recording that mixed frame incorrectly demanded a 16-pixel offset after
-returning from fullscreen. The test now verifies the windowed baseline against
-actual captured pixels before saving its geometry, retains the one-pixel restore
-tolerance, and reports both numeric rectangles on failure. Fullscreen still must
-match the original raster and return to the same settled windowed view.
+inverse pointer mapping. The preceding narrow-window test restores the browser
+viewport, which can precede Uno's responsive layout and paint. The additional
+baseline check exposed a persistent defect rather than merely a transient frame:
+its recorded origin kept the former 12-pixel padding instead of the restored
+28-pixel padding, and the pointer arrived at remote x=111 instead of x=127 even
+after waiting. Uniform raster samples alone did not expose this 16-pixel shift;
+the independent inverse-input assertion did.
+
+A real `SemanticLayoutHost` now owns the workspace's content row. Responsive
+padding moves that retained semantic parent instead of a pruned structural Grid,
+so descendant hit targets inherit the actual offset without DOM coordinate writes,
+per-frame tree rebuilding, or hard-coded pointer corrections. The hidden windowed
+workspace no longer changes to zero padding while a separate fullscreen root is
+active. The same native layouts and dimensions remain in use.
+
+The test retains its one-pixel restoration tolerance and original raster threshold,
+verifies the live view belongs to this workspace owner, and checks inverse pointer
+mapping before entry, during both fullscreen entries and after restoration. Both
+rectangles and expected/observed pointer coordinates are reported on failure.

@@ -18,6 +18,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     # windowed geometry. This adds a real check instead of loosening restoration.
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     input_before = await validate_fullscreen_pixels(page, metrics, output, '18-windowed-baseline', input_before)
+    await expect(page.get_by_label('Workspace sections', exact=True).get_by_label('Remote desktop', exact=True)).to_be_visible()
     baseline = await page.get_by_label('Remote desktop', exact=True).bounding_box()
     async def entered(name):
         nonlocal input_before
