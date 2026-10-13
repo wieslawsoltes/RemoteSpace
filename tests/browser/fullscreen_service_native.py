@@ -19,7 +19,7 @@ async def run(output):
         page = await browser.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
-            await page.set_content('<!doctype html><title>Fullscreen lifecycle</title><button id="enter">Enter</button><button id="exit">Exit</button><button id="dispose">Dispose</button>')
+            await page.set_content('<!doctype html><title>Fullscreen lifecycle</title><button id="enter">Enter</button><button id="exit">Exit</button><button id="dispose">Dispose</button><button id="terminal">Enter and close</button>')
             script = source + '''
                 globalThis.changes=[];
                 globalThis.controller=createController(document, value=>changes.push(value));
@@ -27,6 +27,12 @@ async def run(output):
                 document.querySelector('#enter').onclick=()=>controller.set(true).then(v=>result=v,e=>result={error:e.message});
                 document.querySelector('#exit').onclick=()=>controller.set(false).then(v=>result=v,e=>result={error:e.message});
                 document.querySelector('#dispose').onclick=()=>controller.dispose().then(v=>result=v,e=>result={error:e.message});
+                document.querySelector('#terminal').onclick=()=>{
+                    result=null;
+                    const entering=controller.set(true), closing=controller.exit();
+                    const shared=Array.from({length:50},()=>controller.exit()===closing).every(Boolean);
+                    Promise.all([entering,closing]).then(values=>result={values,shared},e=>result={error:e.message});
+                };
             '''
             await page.add_script_tag(type='module',content=script)
             await page.wait_for_function('globalThis.controller !== undefined')
@@ -39,16 +45,27 @@ async def run(output):
             await page.evaluate('document.exitFullscreen()')
             await page.wait_for_function('changes.length === 8 && changes[7] === false')
             checks.append('Actual external platform exit is observed without dispatching a synthetic event')
+            await page.click('#terminal')
+            await page.wait_for_function('result && typeof result === "object"')
+            assert await page.evaluate('result') == {'values':[True,False], 'shared':True}
+            await page.wait_for_function('document.fullscreenElement === null && changes.length === 10')
+            assert await page.evaluate('changes.slice(-2)') == [True,False]
+            checks.append('Terminal close drains a real pending native entry and shares fifty concurrent exit requests')
             await page.click('#enter'); await page.wait_for_function('document.fullscreenElement !== null')
             await page.click('#dispose'); await page.wait_for_function('document.fullscreenElement === null && result === false')
-            assert len(await page.evaluate('changes')) == 9
+            assert len(await page.evaluate('changes')) == 11
             checks.append('Disposing an active owner exits fullscreen and removes its notification listener')
             # The sandbox creates an opaque-origin child; fullscreen is denied
             # by its real permissions policy even after clicking its own button.
-            denied = '<!doctype html><button id="enter">Enter</button><script type="module">'+source+'''
+            denied = '<!doctype html><button id="enter">Enter</button><button id="terminal">Enter and close</button><script type="module">'+source+'''
                 const owner=createController(document,()=>{});
                 globalThis.result=null;
                 document.querySelector('#enter').onclick=()=>owner.set(true).then(v=>result=v,e=>result={error:e.message});
+                document.querySelector('#terminal').onclick=()=>{
+                    result=null;
+                    const entry=owner.set(true), close=owner.exit();
+                    Promise.allSettled([entry,close]).then(values=>result=values.map(v=>({status:v.status,value:v.value})));
+                };
             </script>'''
             await page.set_content('<iframe sandbox="allow-scripts" allow="fullscreen \'none\'" srcdoc="'+html.escape(denied,quote=True)+'"></iframe>')
             frame = page.frames[-1]
@@ -56,6 +73,12 @@ async def run(output):
             await frame.wait_for_function('globalThis.result !== null')
             assert isinstance(await frame.evaluate('result'),dict) and not await frame.evaluate('Boolean(document.fullscreenElement)')
             checks.append('Real iframe fullscreen policy denies entry without claiming a successful transition')
+            await frame.locator('#terminal').click()
+            await frame.wait_for_function('Array.isArray(result)')
+            result = await frame.evaluate('result')
+            assert result[0]['status'] == 'rejected' and result[1] == {'status':'fulfilled','value':False}
+            assert not await frame.evaluate('Boolean(document.fullscreenElement)')
+            checks.append('Terminal cleanup completes after a real iframe policy denial without bypassing that policy')
             assert not errors, errors
             for check in checks: print('PASS '+check,flush=True)
         finally:
