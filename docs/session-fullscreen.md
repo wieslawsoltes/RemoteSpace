@@ -46,7 +46,7 @@ resize request, synthetic surface or alternate client is introduced.
 
 ## Validation
 
-Fourteen exact-module Node tests cover actual-state notifications, synchronous and
+Sixteen exact-module Node tests cover actual-state notifications, synchronous and
 asynchronous failures, one-slot admission, repeated events, disposed commands,
 late completion, listener removal and ownership isolation. A native Chromium
 component test uses real fullscreen requests/promises/events and a real denied
@@ -80,3 +80,23 @@ reparenting or browser coordinate adjustments are used. An InfoBar in the fullsc
 host keeps command failures visible even while the workspace is hidden. Tests also
 require all seven toolbar targets to remain in the window and the remote view to
 belong to the appropriate host before and after entry/exit.
+
+## Confirmed ownership and cleanup
+
+A new regression reproduces disposal exiting unrelated document fullscreen after
+our own pending entry was denied. Browser ownership is now recorded only when the
+platform entry promise succeeds with the document element active, not when the
+request is merely submitted. Pending successful entry still drains and exits on
+disposal, while rejection never grants ownership. Native desktop disposal likewise
+tracks successful controller-initiated entry rather than exiting any pre-existing
+ApplicationView fullscreen state. Initialization after disposal is rejected even
+when a previous initialization task has completed. Native-host runtime qualification
+remains separate from the exercised browser lifecycle and successful compilation.
+
+Both fullscreen entries also compare flat samples from the real user-downloaded
+remote-resolution PNG against its fitted on-screen image, requiring at least
+97% matching samples. The independent pointer observation requires inverse mapping
+to the same remote pixel, not merely an enlarged HTML/semantic rectangle. Capture
+and entry commands must emit no remote keystrokes; deliberate pointer packets
+are accounted separately before testing the exit commands. This retains the same
+original remote framebuffer and does not fabricate a test surface.

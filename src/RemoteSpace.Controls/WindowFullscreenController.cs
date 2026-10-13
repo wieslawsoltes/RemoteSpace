@@ -14,6 +14,9 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
 {
     private readonly FrameworkElement _owner;
     private bool _ready, _disposed;
+#if !__WASM__
+    private bool _ownsNativeFullscreen;
+#endif
     private Task? _initialization, _disposal;
     private readonly string _id = Guid.NewGuid().ToString("N");
     public bool IsFullScreen { get; private set; }
@@ -23,7 +26,11 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(owner);
         _owner = owner;
     }
-    public Task InitializeAsync() => _initialization ??= InitializeCoreAsync();
+    public Task InitializeAsync()
+    {
+        VerifyAccess(); ObjectDisposedException.ThrowIf(_disposed, this);
+        return _initialization ??= InitializeCoreAsync();
+    }
     private async Task InitializeCoreAsync()
     {
         VerifyAccess(); ObjectDisposedException.ThrowIf(_disposed, this);
@@ -47,8 +54,11 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
         return SetBrowser(_id, active);
 #else
         var view = ApplicationView.GetForCurrentView();
-        if (active && !view.IsFullScreenMode && !view.TryEnterFullScreenMode())
-            throw new InvalidOperationException("Full screen was declined by the host.");
+        if (active && !view.IsFullScreenMode)
+        {
+            if (!view.TryEnterFullScreenMode()) throw new InvalidOperationException("Full screen was declined by the host.");
+            _ownsNativeFullscreen = true;
+        }
         if (!active && view.IsFullScreenMode) view.ExitFullScreenMode();
         Publish(view.IsFullScreenMode);
         return Task.CompletedTask;
@@ -60,6 +70,9 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
     }
     private void Publish(bool value)
     {
+#if !__WASM__
+        if (!value) _ownsNativeFullscreen = false;
+#endif
         if (_disposed || value == IsFullScreen) return;
         IsFullScreen = value; Changed?.Invoke(value);
     }
@@ -78,7 +91,9 @@ public sealed partial class WindowFullscreenController : IAsyncDisposable
         if (_ready) await Unregister(_id);
 #else
         _owner.SizeChanged -= SizeChanged;
-        if (_ready && IsFullScreen) ApplicationView.GetForCurrentView().ExitFullScreenMode();
+        if (_ready && _ownsNativeFullscreen && ApplicationView.GetForCurrentView().IsFullScreenMode)
+            ApplicationView.GetForCurrentView().ExitFullScreenMode();
+        _ownsNativeFullscreen = false;
         await Task.CompletedTask;
 #endif
         _ready = false; IsFullScreen = false;
@@ -122,8 +137,11 @@ export function createController(doc, changed) {
             try {
                 // Invoke now, on the original activation stack, not after an await.
                 const pending = value ? doc.documentElement.requestFullscreen({navigationUI:'hide'}) : doc.exitFullscreen();
-                if (value) owned = true;
                 operation = Promise.resolve(pending).then(async () => {
+                    // A denied request cannot acquire someone else's fullscreen
+                    // entered while that request was pending. Claim ownership only
+                    // after our platform operation succeeds for this element.
+                    if (value) owned = active();
                     if (disposed) return leaveOwned();
                     const result = publish();
                     if (result !== value) throw new Error('The host did not apply the fullscreen request.');

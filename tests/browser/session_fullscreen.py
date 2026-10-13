@@ -5,6 +5,7 @@ import subprocess
 import time
 from playwright.async_api import expect
 from driver import command
+from fullscreen_pixels import validate_fullscreen_pixels
 
 async def validate_session_fullscreen(page, metrics, output, passed):
     sizes = list(metrics['sizes'])
@@ -12,6 +13,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     input_before = metrics['input_packets']
     baseline = await page.get_by_label('Remote desktop', exact=True).bounding_box()
     async def entered(name):
+        nonlocal input_before
         await command(page, 'Full screen')
         await page.wait_for_function('document.fullscreenElement === document.documentElement')
         await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_be_visible()
@@ -36,11 +38,13 @@ async def validate_session_fullscreen(page, metrics, output, passed):
                 check = subprocess.run(['python3','tests/browser/assert_pixels.py',str(picture)],capture_output=True,text=True)
                 if check.returncode == 0:
                     (output/(name+'.geometry.json')).write_text(json.dumps({'host':size,'remote_view':bounds,'windowed_view':baseline},indent=2))
+                    input_before = await validate_fullscreen_pixels(page, metrics, output, name, input_before)
                     return
             if time.monotonic() >= until:
                 raise AssertionError('Full screen did not expand the real remote surface to the window beneath its pinned toolbar: '+str(bounds))
             await asyncio.sleep(.1)
     async def restored():
+        nonlocal input_before
         await page.wait_for_function('document.fullscreenElement === null')
         await expect(page.get_by_role('button', name='Full screen', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_have_count(0)
@@ -49,6 +53,14 @@ async def validate_session_fullscreen(page, metrics, output, passed):
         await expect(page.get_by_role('button', name='Close Tab', exact=True)).to_be_visible()
         await expect(page.get_by_label('Active remote session', exact=True).get_by_label('Remote desktop', exact=True)).to_be_visible()
         await expect(page.get_by_label('Full-screen remote session', exact=True)).not_to_be_visible()
+        deadline = time.monotonic() + 10
+        while True:
+            bounds = await page.get_by_label('Remote desktop', exact=True).bounding_box()
+            if bounds and all(abs(bounds[key] - baseline[key]) <= 1 for key in ('x', 'y', 'width', 'height')):
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError('Exiting fullscreen did not restore the original windowed view geometry.')
+            await asyncio.sleep(.1)
         if metrics['sizes'] != sizes or metrics['layout_requests'] != layouts:
             raise AssertionError('A local fullscreen transition changed server resolution or reconnected the session.')
 
@@ -64,5 +76,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     await restored()
     if metrics['input_packets'] != input_before:
         raise AssertionError('Fullscreen commands leaked local activation into remote keyboard input.')
+    await validate_fullscreen_pixels(page, metrics, output, '20-fullscreen-restored', input_before)
     await page.screenshot(path=str(output/'20-fullscreen-restored.png'))
     passed('A platform fullscreen exit restores the session controls, with no duplicate peers or remote activation keys')
+    passed('Full-screen capture samples and inverse pointer coordinates agree at both entries and restoration without changing server pixels')

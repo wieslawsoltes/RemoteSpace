@@ -90,3 +90,19 @@ test('document registration is single-owner and does not release ownership befor
         await assert.rejects(api.set('missing',true),/not initialized/);
     } finally {delete globalThis.document;await f.control.dispose();}
 });
+
+test('a denied pending request never acquires unrelated document fullscreen',async()=>{
+    const f=fixture(),d=deferred();f.setEnter(()=>d.promise);
+    const request=f.control.set(true);
+    // Another host enters document fullscreen while our own request is denied.
+    f.doc.fullscreenElement=f.doc.documentElement;f.notify();
+    d.reject(Error('denied'));
+    await assert.rejects(request,/denied/);await f.control.dispose();
+    assert.equal(f.doc.fullscreenElement,f.doc.documentElement);
+    assert.deepEqual(f.calls,['enter']);
+});
+test('no-op repeated initialization requests do not claim pre-existing fullscreen ownership',async()=>{
+    const f=fixture();f.doc.fullscreenElement=f.doc.documentElement;f.notify();
+    await f.control.set(true);await f.control.dispose();
+    assert.equal(f.doc.fullscreenElement,f.doc.documentElement);assert.deepEqual(f.calls,[]);
+});
