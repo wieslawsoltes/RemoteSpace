@@ -69,3 +69,5 @@ foreach (bool bridge in new[] { false, true })
     Check(true, kind + " terminal observer failure cannot strand disposal");
 }
 Console.WriteLine($"RESULT: {checks} lifecycle checks passed.");
+
+await TrafficTests.RunAsync();
