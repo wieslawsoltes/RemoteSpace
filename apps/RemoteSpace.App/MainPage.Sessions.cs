@@ -65,7 +65,12 @@ public sealed partial class MainPage
             AddClipboardCommands(toolbar, opened);
             AddSessionActions(toolbar, opened);
             opened.FullScreenButton = toolbar.AddCommand("Full screen", "\uE740", () => ToggleSessionFullscreenAsync(opened));
-            void UpdateBar() => toolbar.Status = $"{session.State} · {view.DesktopWidth} × {view.DesktopHeight} · {(view.FitToWindow ? "Fit" : view.Zoom.ToString("0%"))}";
+            var status = new SessionStatusCache();
+            void UpdateBar()
+            {
+                if (status.Update(session.State, view.DesktopWidth, view.DesktopHeight, view.FitToWindow, view.Zoom))
+                    toolbar.Status = status.Text;
+            }
             view.ViewChanged += UpdateBar;
             if (session is IRemoteGraphicsOutput output)
                 output.OutputEnabledChanged += enabled => DispatcherQueue.TryEnqueue(() => { if (_sessions.Contains(opened)) view.IsEnabled = enabled; });
@@ -147,7 +152,14 @@ public sealed partial class MainPage
                 _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab);
                 RefreshSessionState(); RefreshSessionPresentation();
             }
-            else opened.Closing = false;
+            else
+            {
+                opened.Closing = false;
+                // The server may end while confirmation is open. Cancelling
+                // that dialog must not strand the now-ended fullscreen view.
+                if (opened.Session.State is SessionState.Disconnected or SessionState.Faulted)
+                    _ = ExitEndedFullscreenAsync(opened);
+            }
         }
         if (failure is not null)
         {

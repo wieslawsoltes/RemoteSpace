@@ -79,8 +79,11 @@ public sealed partial class MainPage
             // Presentation failure must not retain a closed session's view. A
             // refused host exit leaves a usable workspace and a visible error;
             // the browser/OS still owns its normal fullscreen escape command.
-            if (ReferenceEquals(_fullScreenSession, opened)) _fullScreenSession = null;
-            ApplyFullscreenLayout(false);
+            if (_fullScreenSession is null || ReferenceEquals(_fullScreenSession, opened))
+            {
+                _fullScreenSession = null;
+                ApplyFullscreenLayout(false);
+            }
         }
     }
     private async Task ExitEndedFullscreenAsync(OpenSession opened)
