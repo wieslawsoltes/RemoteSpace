@@ -4,7 +4,7 @@ namespace RemoteSpace.Input;
 
 /// <summary>Platform-neutral keyboard/pointer state. Call from one UI thread.
 /// Tracks exactly what was sent so focus loss can release held input without synthesizing new presses.</summary>
-public sealed class InputState
+public sealed partial class InputState
 {
     private readonly Dictionary<uint, (ushort Scan, bool Extended)> _keys = new();
     private readonly HashSet<ushort> _buttons = new();
@@ -51,28 +51,29 @@ public sealed class InputState
     {
         if (delta is < -12000 or > 12000) throw new ArgumentOutOfRangeException(nameof(delta));
         _x = x; _y = y;
-        var result = new List<RemoteInput>();
-        while (delta != 0)
+        if (delta == 0) return [];
+        var result = new RemoteInput[(Math.Abs(delta) + 254) / 255];
+        for (int i = 0; i < result.Length; i++)
         {
             int part = Math.Clamp(delta, -255, 255); delta -= part;
             // MS-RDPBCGR TS_POINTER_EVENT: signed 9-bit rotation includes PTRFLAGS_WHEEL_NEGATIVE.
-            result.Add(new(InputKind.Pointer, (ushort)((horizontal ? 0x0400 : 0x0200) | (part & 0x01ff)), 0, x, y));
+            result[i] = new(InputKind.Pointer, (ushort)((horizontal ? 0x0400 : 0x0200) | (part & 0x01ff)), 0, x, y);
         }
-        return result.ToArray();
+        return result;
     }
     public RemoteInput[] ReleaseAll()
     {
-        var result = _keys.Values.Select(k => new RemoteInput(InputKind.ScanCode,
-            (ushort)(0x8000 | (k.Extended ? 0x0100 : 0)), k.Scan)).ToList();
-        result.AddRange(_buttons.Select(b => new RemoteInput(InputKind.Pointer, b, 0, _x, _y)));
-        result.AddRange(_extendedButtons.Select(b => new RemoteInput(InputKind.ExtendedPointer, b, 0, _x, _y)));
-        _keys.Clear(); _buttons.Clear(); _extendedButtons.Clear(); return result.ToArray();
+        int count = HeldKeyCount + HeldButtonCount;
+        if (count == 0) return [];
+        var result = new RemoteInput[count];
+        CopyReleases(result); ClearHeldState();
+        return result;
     }
     public static RemoteInput[] UnicodeText(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
         if (text.Length > 16384 || text.Contains('\0')) throw new ArgumentException("Text exceeds the input limit or contains NUL.", nameof(text));
-        var result = new List<RemoteInput>(text.Length * 2);
+        // Validate before allocating a potentially large event array.
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];
@@ -81,9 +82,16 @@ public sealed class InputState
                 if (i + 1 >= text.Length || !char.IsLowSurrogate(text[i + 1])) throw new ArgumentException("Unpaired UTF-16 surrogate.", nameof(text));
             }
             else if (char.IsLowSurrogate(c) && (i == 0 || !char.IsHighSurrogate(text[i - 1]))) throw new ArgumentException("Unpaired UTF-16 surrogate.", nameof(text));
-            result.Add(new(InputKind.Unicode, 0, c)); result.Add(new(InputKind.Unicode, 0x8000, c));
+
         }
-        return result.ToArray();
+        if (text.Length == 0) return [];
+        var result = new RemoteInput[text.Length * 2];
+        for (int i = 0; i < text.Length; i++)
+        {
+            result[i * 2] = new(InputKind.Unicode, 0, text[i]);
+            result[i * 2 + 1] = new(InputKind.Unicode, 0x8000, text[i]);
+        }
+        return result;
     }
     public static RemoteInput[] PauseKey() =>
     [new(InputKind.ScanCode, 0x0200, 0x1d), new(InputKind.ScanCode, 0, 0x45),

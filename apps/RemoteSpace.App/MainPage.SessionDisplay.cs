@@ -50,12 +50,13 @@ public sealed partial class MainPage
 
     private void AddSessionActions(SessionCommandBar bar, OpenSession opened)
     {
+        AddKeyboardCommands(bar, opened);
         bar.AddMenu("Session actions", "\uE712", () =>
         {
             var menu = new MenuFlyout(); bool active = opened.Session.State == SessionState.Active;
             AddGraphicsOutputControls(opened, bar, menu);
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(bar.MenuCommand("Ctrl+Alt+Del", () => { opened.View.SendSecureAttention(); return Task.CompletedTask; }, active));
+            menu.Items.Add(bar.MenuCommand("Ctrl+Alt+Del", () => { opened.View.SendSecureAttention(); return Task.CompletedTask; }, active && opened.View.IsEnabled));
             menu.Items.Add(bar.MenuCommand("Capture", async () =>
             {
                 if (await _fileAccess.ExportAsync(opened.Profile.Name + "-desktop.png", opened.View.CapturePng(), "image/png"))

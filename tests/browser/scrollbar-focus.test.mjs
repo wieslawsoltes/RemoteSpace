@@ -112,24 +112,43 @@ test('disposed bindings retain no queued references after ID reuse',()=>{
 });
 test('axis-specific arrows and common navigation have the correct native virtual-key codes',()=>{
     for(const horizontal of [true,false]){
-        const s=setup(),codes=[];s.context.register('bar',horizontal,key=>codes.push(key));s.focus('bar');
+        const s=setup(),codes=[];s.context.register('bar',horizontal,key=>{if(key!==0)codes.push(key);});s.focus('bar');
         const allowed=new Map([['Home',36],['End',35],['PageUp',33],['PageDown',34],
             ...(horizontal?[['ArrowLeft',37],['ArrowRight',39]]:[['ArrowUp',38],['ArrowDown',40]])]);
         for(const [key,code] of allowed){const event=s.key('bar','scrollbar',key);assert.equal(event.stopped,true);assert.equal(codes.at(-1),code);}
         const count=codes.length;
         for(const key of [...(horizontal?['ArrowUp','ArrowDown']:['ArrowLeft','ArrowRight']),'Tab','Escape','a','Enter',' '])
-            assert.equal(s.key('bar','scrollbar',key).stopped,false);
+            {const event=s.key('bar','scrollbar',key);assert.equal(event.stopped,true);assert.equal(event.defaultPrevented,false);}
         assert.equal(codes.length,count);
     }
 });
-test('modifier shortcuts and already-handled events remain untouched',()=>{
-    const s=setup();let calls=0;s.context.register('bar',true,()=>calls++);s.focus('bar');
-    for(const option of ['ctrlKey','altKey','metaKey','defaultPrevented']){
+test('modifier shortcuts retain browser defaults but cannot enter remote routing',()=>{
+    const s=setup(),keys=[];s.context.register('bar',true,key=>keys.push(key));s.focus('bar');
+    for(const option of ['ctrlKey','altKey','metaKey']){
+        let stopped=false;
         const event={type:'keydown',target:s.element('bar'),key:'Home',[option]:true,
-            preventDefault(){throw Error('Should not prevent');},stopPropagation(){throw Error('Should not stop');}};
+            preventDefault(){throw Error('Browser default must be preserved');},stopPropagation(){stopped=true;}};
         for(const callback of s.listeners.get('keydown'))callback(event);
+        assert.equal(stopped,true);
     }
+    assert.deepEqual(keys,[0,0,0]);
+});
+test('already-handled input stays untouched',()=>{
+    const s=setup();let calls=0;s.context.register('bar',true,()=>calls++);s.focus('bar');
+    const event={type:'keydown',target:s.element('bar'),key:'Home',defaultPrevented:true,
+        preventDefault(){throw Error('Should not prevent');},stopPropagation(){throw Error('Should not stop');}};
+    for(const callback of s.listeners.get('keydown'))callback(event);
     assert.equal(calls,0);
+});
+test('local text and Tab release remote ownership without changing browser defaults or navigating',()=>{
+    const s=setup();let released=0;const navigation=[];
+    s.context.register('bar',true,key=>{released++;if(key!==0)navigation.push(key);});s.focus('bar');
+    for(const key of ['a','Tab','Escape','Enter',' ']){
+        const down=s.key('bar','scrollbar',key),up=s.dispatch('keyup',s.element('bar'),key);
+        assert.equal(down.stopped,true);assert.equal(up.stopped,true);
+        assert.equal(down.defaultPrevented,false);assert.equal(up.defaultPrevented,false);
+    }
+    assert.equal(released,5);assert.deepEqual(navigation,[]);assert.equal(s.pending(),0);
 });
 test('invalid registrations are rejected before adding listeners',()=>{
     const s=setup();

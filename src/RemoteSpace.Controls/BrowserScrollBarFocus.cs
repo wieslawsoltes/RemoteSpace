@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Controls;
 using Windows.System;
-using Microsoft.UI.Xaml.Input;
 #if __WASM__
 using System.Runtime.InteropServices.JavaScript;
 using System.Text;
@@ -13,11 +12,16 @@ namespace RemoteSpace.Controls;
 
 /// <summary>Keyboard compatibility for owned scrollbars in the pinned Uno Skia
 /// browser host. Navigation is applied to the registered native control, not to
-/// whichever control a delayed focus notification leaves selected. Other keys
-/// keep ordinary native routing; no RDP input or private host API is invoked.</summary>
+/// whichever control a delayed focus notification leaves selected. Other local
+/// keys keep browser defaults without entering remote keyboard routing. No private
+/// host API or DOM value mutation is used.</summary>
 public static partial class BrowserScrollBarFocus
 {
-    public static async Task<IDisposable> RegisterAsync(ScrollBar bar)
+    public static Task<IDisposable> RegisterAsync(ScrollBar bar) => RegisterAsync(bar, null);
+
+    /// <param name="localInput">Optional UI-owner notification to release tracked
+    /// remote input when a keyboard gesture belongs to this local scrollbar.</param>
+    public static async Task<IDisposable> RegisterAsync(ScrollBar bar, Action? localInput)
     {
         ArgumentNullException.ThrowIfNull(bar);
         if (!bar.DispatcherQueue.HasThreadAccess)
@@ -29,11 +33,14 @@ public static partial class BrowserScrollBarFocus
         Register(id, bar.Orientation == Orientation.Horizontal, key =>
         {
             if (!bar.IsLoaded || !bar.IsEnabled || bar.Visibility != Visibility.Visible) return;
-            // Focus is useful for accessibility, but no longer decides where the
-            // navigation action is applied. Late focus callbacks cannot reroute it.
-            if (!ReferenceEquals(FocusManager.GetFocusedElement(bar.XamlRoot), bar))
-                bar.Focus(FocusState.Keyboard);
-            ScrollBarNavigation.Apply(bar, (VirtualKey)key);
+            // DOM focus already identifies the intended owner. Do not request
+            // native focus here: its asynchronous reply can steal focus from the
+            // next scrollbar before that scrollbar receives its physical key.
+            // Navigation changes the owned native range, never DOM values.
+            localInput?.Invoke();
+            // Zero denotes a local non-navigation key: leave its browser default
+            // intact, but do not let the global XAML router send it to RDP.
+            if (key != 0) ScrollBarNavigation.Apply(bar, (VirtualKey)key);
         });
         return new Registration(id);
 #else
@@ -71,20 +78,22 @@ export function bind(root, registrations) {
     let dispatching = false, disposed = false;
     const navigate = event => {
         const target = event.target;
-        if (disposed || dispatching || event.defaultPrevented || event.ctrlKey || event.altKey || event.metaKey ||
+        if (disposed || dispatching || event.defaultPrevented ||
             target !== root.ownerDocument.activeElement || target?.getAttribute?.('role') !== 'scrollbar' ||
             target.getAttribute('aria-disabled') === 'true') return;
         const registration = registrations.get(target.getAttribute('xamlautomationid'));
         if (!registration) return;
-        const key = commonKeys.get(event.key) ?? (registration.horizontal ? horizontalKeys : verticalKeys).get(event.key);
-        if (key === undefined) return;
-        // This navigation gesture belongs to this native scrollbar. Consume it
-        // once rather than letting the document-level router apply it again to
-        // an asynchronously focused control or to the remote desktop.
-        event.preventDefault(); event.stopPropagation();
+        const modified = event.ctrlKey || event.altKey || event.metaKey;
+        const key = modified ? undefined :
+            commonKeys.get(event.key) ?? (registration.horizontal ? horizontalKeys : verticalKeys).get(event.key);
+        // All keyboard gestures on an owned local scrollbar stay local. Preserve
+        // browser defaults for Tab, text and modified shortcuts, but never route
+        // them to the native remote surface merely because XAML focus is stale.
+        event.stopPropagation();
+        if (key !== undefined) event.preventDefault();
         if (event.type === 'keyup') return;
         dispatching = true;
-        try { registration.navigate(key); } finally { dispatching = false; }
+        try { registration.navigate(key ?? 0); } finally { dispatching = false; }
     };
     root.addEventListener('keydown', navigate);
     root.addEventListener('keyup', navigate);
