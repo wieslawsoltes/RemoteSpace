@@ -71,3 +71,5 @@ foreach (bool bridge in new[] { false, true })
 Console.WriteLine($"RESULT: {checks} lifecycle checks passed.");
 
 await TrafficTests.RunAsync();
+
+await CleanupSequenceTests.RunAsync();
