@@ -22,6 +22,7 @@ from saved_display import fixed_local_zoom
 from graphics_output import validate_output_controls
 from session_display import validate_session_display
 from input_events import validate_extended_input
+from session_close import validate_fullscreen_close
 
 async def run(site, output):
     if os.environ.get('RDP_TEST_HOST') != '127.0.0.1':
@@ -211,6 +212,7 @@ async def run(site, output):
                 passed('Saved profile reconnects through a fresh session after explicit credential entry')
                 await expect(page.get_by_label('Active · 1280 × 720 · 150%', exact=True)).to_be_visible()
                 passed('Reconnection restores saved local zoom rather than the previous session toolbar override')
+                await validate_fullscreen_close(page, metrics, output, passed)
                 if errors: raise AssertionError('Uncaught browser errors: '+'\n'.join(errors))
                 passed('No uncaught JavaScript or WASM session errors')
             except BaseException:

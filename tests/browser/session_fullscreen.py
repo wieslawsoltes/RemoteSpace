@@ -20,7 +20,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     input_before = await validate_fullscreen_pixels(page, metrics, output, '18-windowed-baseline', input_before)
     await expect(page.get_by_label('Workspace sections', exact=True).get_by_label('Remote desktop', exact=True)).to_be_visible()
     baseline = await page.get_by_label('Remote desktop', exact=True).bounding_box()
-    async def entered(name):
+    async def entered(name, reference_path=None):
         nonlocal input_before
         await command(page, 'Full screen')
         await page.wait_for_function('document.fullscreenElement === document.documentElement')
@@ -46,7 +46,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
                 check = subprocess.run(['python3','tests/browser/assert_pixels.py',str(picture)],capture_output=True,text=True)
                 if check.returncode == 0:
                     (output/(name+'.geometry.json')).write_text(json.dumps({'host':size,'remote_view':bounds,'windowed_view':baseline},indent=2))
-                    input_before = await validate_fullscreen_pixels(page, metrics, output, name, input_before)
+                    input_before = await validate_fullscreen_pixels(page, metrics, output, name, input_before, reference_path=reference_path)
                     return
             if time.monotonic() >= until:
                 raise AssertionError('Full screen did not expand the real remote surface to the window beneath its pinned toolbar: '+str(bounds))
@@ -76,7 +76,12 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     await command(page, 'Exit full screen')
     await restored()
     passed('Full screen displays the real remote desktop beneath the pinned toolbar and restores the workspace without resizing the server')
-    await entered('19-fullscreen-external-exit.png')
+    # The file service deliberately retains at most four download URLs for
+    # 30 seconds. Reuse the first real fullscreen capture across later local
+    # transitions rather than racing that bounded-export policy with five
+    # downloads. This also compares against unchanged ORIGINAL pixels.
+    reference_path = output / '18-fullscreen-session.png.remote.png'
+    await entered('19-fullscreen-external-exit.png', reference_path)
     # Exercise a real host-level exit, not an application command or synthetic
     # fullscreenchange. Chromium's headless Escape accelerator differs by host;
     # the public platform exit guarantees a real event for this lifecycle test.
@@ -84,7 +89,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     await restored()
     if metrics['input_packets'] != input_before:
         raise AssertionError('Fullscreen commands leaked local activation into remote keyboard input.')
-    await validate_fullscreen_pixels(page, metrics, output, '20-fullscreen-restored', input_before)
+    await validate_fullscreen_pixels(page, metrics, output, '20-fullscreen-restored', input_before, reference_path=reference_path)
     await page.screenshot(path=str(output/'20-fullscreen-restored.png'))
     passed('A platform fullscreen exit restores the session controls, with no duplicate peers or remote activation keys')
     passed('Full-screen capture samples and inverse pointer coordinates agree at both entries and restoration without changing server pixels')

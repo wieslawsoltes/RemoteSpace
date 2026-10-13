@@ -51,6 +51,7 @@ public sealed partial class MainPage
             throw new InvalidOperationException("Select a remote session before entering full screen.");
         if (_windowFullscreen.IsFullScreen && ReferenceEquals(_fullScreenSession, opened))
         {
+            // This is an explicit user exit, unlike automatic session teardown.
             await _windowFullscreen.SetAsync(false);
             return;
         }
@@ -60,7 +61,7 @@ public sealed partial class MainPage
             // Do not await focus or module initialization before the permission-sensitive call.
             await _windowFullscreen.SetAsync(true);
             if (opened.Session.State != SessionState.Active || !_sessions.Contains(opened) || opened.Closing || _section != "sessions" || Sessions.SelectedItem != opened.Tab)
-                await _windowFullscreen.SetAsync(false);
+                await _windowFullscreen.ExitAsync();
             else ApplyFullscreenLayout(_windowFullscreen.IsFullScreen);
         }
         catch
@@ -73,9 +74,18 @@ public sealed partial class MainPage
     private async Task ExitSessionFullscreenAsync(OpenSession opened)
     {
         if (!ReferenceEquals(_fullScreenSession, opened)) return;
-        await _windowFullscreen.SetAsync(false);
-        _fullScreenSession = null;
-        ApplyFullscreenLayout(false);
+        try { await _windowFullscreen.ExitAsync(); }
+        finally
+        {
+            // Presentation failure must not retain a closed session's view. A
+            // refused host exit leaves a usable workspace and a visible error;
+            // the browser/OS still owns its normal fullscreen escape command.
+            if (_fullScreenSession is null || ReferenceEquals(_fullScreenSession, opened))
+            {
+                _fullScreenSession = null;
+                ApplyFullscreenLayout(false);
+            }
+        }
     }
     private async Task ExitEndedFullscreenAsync(OpenSession opened)
     {

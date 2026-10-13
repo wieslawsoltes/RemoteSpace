@@ -13,8 +13,8 @@ public sealed partial class SessionCommandBar : UserControl
     private readonly HashSet<MenuFlyout> _menus = new();
     private readonly StackPanel _commands = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
     public event Action<string>? CommandFailed;
-    public string Title { get => TitleText.Text; set { TitleText.Text = value; ToolTipService.SetToolTip(TitleText, value); } }
-    public string Status { get => StatusText.Text; set { StatusText.Text = value; AutomationProperties.SetName(StatusText, value); } }
+    public string Title { get => TitleText.Text; set { if (TitleText.Text == value) return; TitleText.Text = value; ToolTipService.SetToolTip(TitleText, value); } }
+    public string Status { get => StatusText.Text; set { if (StatusText.Text == value) return; StatusText.Text = value; AutomationProperties.SetName(StatusText, value); } }
     public SessionCommandBar()
     {
         InitializeComponent();
