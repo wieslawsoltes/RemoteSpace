@@ -106,3 +106,54 @@ test('no-op repeated initialization requests do not claim pre-existing fullscree
     await f.control.set(true);await f.control.dispose();
     assert.equal(f.doc.fullscreenElement,f.doc.documentElement);assert.deepEqual(f.calls,[]);
 });
+
+test('terminal exit drains a pending entry and coalesces repeated close requests',async()=>{
+    const f=fixture(),d=deferred();f.setEnter(()=>d.promise);
+    const entering=f.control.set(true),closing=f.control.exit();
+    for(let i=0;i<1000;i++)assert.equal(f.control.exit(),closing);
+    await assert.rejects(f.control.set(true),/pending/);
+    assert.deepEqual(f.calls,['enter']);
+    f.doc.fullscreenElement=f.doc.documentElement;f.notify();d.resolve();
+    await entering;assert.equal(await closing,false);
+    assert.deepEqual(f.calls,['enter','exit']);assert.equal(f.doc.fullscreenElement,null);await f.control.dispose();
+});
+test('terminal exit after denied entry does not fail cleanup or request a redundant exit',async()=>{
+    const f=fixture(),d=deferred();f.setEnter(()=>d.promise);
+    const entering=f.control.set(true),closing=f.control.exit();d.reject(Error('denied'));
+    await assert.rejects(entering,/denied/);assert.equal(await closing,false);
+    assert.deepEqual(f.calls,['enter']);await f.control.dispose();
+});
+test('terminal exit shares an already pending successful exit',async()=>{
+    const f=fixture(),d=deferred();await f.control.set(true);f.setExit(()=>d.promise);
+    const request=f.control.set(false),closing=f.control.exit();
+    f.doc.fullscreenElement=null;f.notify();d.resolve();await request;await closing;
+    assert.deepEqual(f.calls,['enter','exit']);await f.control.dispose();
+});
+test('terminal exit completion stays pending until the platform confirms exit',async()=>{
+    const f=fixture(),d=deferred();await f.control.set(true);f.setExit(()=>d.promise);
+    let done=false;const closing=f.control.exit().then(v=>{done=true;return v;});
+    await new Promise(resolve=>setImmediate(resolve));assert.equal(done,false);
+    await assert.rejects(f.control.set(true),/pending/);
+    f.doc.fullscreenElement=null;f.notify();d.resolve();assert.equal(await closing,false);await f.control.dispose();
+});
+test('failed terminal exit remains observable and does not loop until it succeeds',async()=>{
+    const f=fixture();await f.control.set(true);f.setExit(()=>Promise.reject(Error('host exit failed')));
+    await assert.rejects(f.control.exit(),/host exit failed/);assert.deepEqual(f.calls,['enter','exit']);
+    f.doc.fullscreenElement=null;f.notify();await f.control.dispose();
+});
+test('disposing while terminal exit awaits entry cannot recreate fullscreen or leak a listener',async()=>{
+    const f=fixture(),d=deferred();f.setEnter(()=>d.promise);
+    const entry=f.control.set(true),closing=f.control.exit(),disposal=f.control.dispose();
+    f.doc.fullscreenElement=f.doc.documentElement;d.resolve();await entry;await closing;await disposal;
+    assert.equal(f.listeners.size,0);assert.deepEqual(f.calls,['enter','exit']);assert.equal(f.doc.fullscreenElement,null);
+    await assert.rejects(f.control.exit(),/disposed/);
+});
+test('completed terminal exit does not reserve the controller for subsequent sessions',async()=>{
+    const f=fixture();for(let i=0;i<100;i++){await f.control.set(true);await f.control.exit();}
+    assert.equal(f.calls.length,200);assert.equal(f.changes.length,200);await f.control.dispose();
+});
+test('registered terminal exit drains its owner and rejects a missing registration',async()=>{
+    const f=fixture();globalThis.document=f.doc;
+    try {api.register('closing',()=>{});await api.set('closing',true);assert.equal(await api.exit('closing'),false);await api.unregister('closing');await assert.rejects(api.exit('missing'),/not initialized/);}
+    finally {delete globalThis.document;await f.control.dispose();}
+});

@@ -83,7 +83,7 @@ public sealed partial class MainPage
                     if (_section == "sessions" && Sessions.SelectedItem == opened.Tab) view.Focus(FocusState.Programmatic);
                 }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
-                if (s is SessionState.Disconnected or SessionState.Faulted) _ = ExitEndedFullscreenAsync(opened);
+                if (!opened.Closing && s is (SessionState.Disconnected or SessionState.Faulted)) _ = ExitEndedFullscreenAsync(opened);
             });
             _sessions.Add(opened); Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
             Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == "sessions");
@@ -120,16 +120,42 @@ public sealed partial class MainPage
     private async Task CloseSessionAsync(OpenSession opened)
     {
         if (opened.Closing || !_sessions.Contains(opened)) return;
-        if (opened.Session.State == SessionState.Active && !await Confirm("Disconnect session", "Disconnect from " + opened.Profile.Name + "? Programs running on the remote PC are not closed.", "Disconnect")) return;
+        // Reserve before awaiting confirmation: repeated commands share the
+        // existing close intent rather than opening another confirmation.
         opened.Closing = true;
+        bool cleanupStarted = false;
+        Exception? failure = null;
         try
         {
-            await ExitSessionFullscreenAsync(opened);
-            await opened.View.AttachAsync(null); opened.Stop.Cancel(); await opened.Session.DisconnectAsync(); await opened.Running;
-            await opened.View.DisposeAsync(); await opened.Session.DisposeAsync(); opened.Stop.Dispose();
-            _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab); RefreshSessionState(); RefreshSessionPresentation();
+            if (opened.Session.State == SessionState.Active && !await Confirm("Disconnect session", "Disconnect from " + opened.Profile.Name + "? Programs running on the remote PC are not closed.", "Disconnect")) return;
+            cleanupStarted = true;
+            await AsyncCleanupSequence.RunAsync(
+                () => new ValueTask(ExitSessionFullscreenAsync(opened)),
+                () => new ValueTask(opened.View.AttachAsync(null)),
+                () => { opened.Stop.Cancel(); return ValueTask.CompletedTask; },
+                () => opened.Session.DisconnectAsync(),
+                () => new ValueTask(opened.Running),
+                () => opened.View.DisposeAsync(),
+                () => opened.Session.DisposeAsync(),
+                () => { opened.Stop.Dispose(); return ValueTask.CompletedTask; });
         }
-        catch (Exception e) { opened.Closing = false; ShowError(e.Message); }
+        catch (Exception error) { failure = error; }
+        finally
+        {
+            if (cleanupStarted)
+            {
+                _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab);
+                RefreshSessionState(); RefreshSessionPresentation();
+            }
+            else opened.Closing = false;
+        }
+        if (failure is not null)
+        {
+            string message = failure is AggregateException multiple
+                ? string.Join("; ", multiple.Flatten().InnerExceptions.Select(error => error.Message))
+                : failure.Message;
+            ShowError("Session cleanup reported: " + message);
+        }
     }
     private void SessionSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
