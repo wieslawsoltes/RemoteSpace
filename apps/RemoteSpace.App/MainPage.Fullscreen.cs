@@ -97,6 +97,8 @@ public sealed partial class MainPage
     {
         if (_isSessionFullscreen == active) return;
         _isSessionFullscreen = active;
+        foreach (var session in _sessions)
+            session.Panel.SetFullscreen(active && ReferenceEquals(_fullScreenSession, session));
         if (active)
         {
             SessionContent.ShowPanel(null);

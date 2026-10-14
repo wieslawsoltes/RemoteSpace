@@ -74,3 +74,5 @@ Check(allocated == 0 && sum > 0, "100000 viewport layouts allocate zero managed 
 Console.WriteLine($"RESULT: {checks} presentation, viewport and invalid-input checks passed.");
 
 SessionStatusTests.Run();
+
+ConnectionToolbarTests.Run();

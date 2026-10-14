@@ -125,3 +125,43 @@ test('toolbar gesture cleanup prevents stale release handling after blur or disp
         const up=f.event();f.host.dispatch('keyup',up,true);assert.equal(up.stopped,false);
     }
 });
+
+
+test('owned activation state remains readable while native routing is intentionally stopped', () => {
+    const f=ownedButtonFixture();
+    assert.equal(f.dispose.isActivationHeld(), false);
+    const e=f.event(); f.root.dispatch('keydown',e);
+    assert.equal(e.stopped,true); assert.equal(f.dispose.isActivationHeld(),true);
+    for(let i=0;i<100000;i++) assert.equal(f.dispose.isActivationHeld(),true);
+    f.host.dispatch('keyup',f.event(),true);
+    assert.equal(f.dispose.isActivationHeld(),false);f.dispose();
+});
+test('handled menu activation remains held until its physical matching release', () => {
+    const f=fixture();assert.equal(f.close.isActivationHeld(),false);
+    f.dispatch('keydown');assert.equal(f.close.isActivationHeld(),true);
+    f.dispatch('keyup',{key:'a',code:'KeyA'});assert.equal(f.close.isActivationHeld(),true);
+    f.dispatch('keyup');assert.equal(f.close.isActivationHeld(),false);f.close();
+});
+test('readable activation state combines Enter numeric Enter and Space independently', () => {
+    const f=fixture();
+    for(const code of ['Enter','NumpadEnter','Space'])f.dispatch('keydown',{code,key:code==='Space'?' ':'Enter'});
+    for(const code of ['Enter','NumpadEnter']) {
+        f.dispatch('keyup',{code,key:'Enter'});assert.equal(f.close.isActivationHeld(),true);
+    }
+    f.dispatch('keyup',{code:'Space',key:' '});assert.equal(f.close.isActivationHeld(),false);f.close();
+});
+test('unowned or ordinary input is not included in the local activation barrier', () => {
+    const f=fixture();
+    for(const options of [{handled:false},{target:new Node('button')},{key:'x',code:'KeyX'},{key:'Escape',code:'Escape'}]) {
+        f.dispatch('keydown',options);assert.equal(f.close.isActivationHeld(),false);
+    }
+    f.close();
+});
+test('blur pagehide and disposal clear the readable held activation state', () => {
+    for(const action of ['blur','pagehide','dispose']) {
+        const f=ownedButtonFixture();f.root.dispatch('keydown',f.event());
+        assert.equal(f.dispose.isActivationHeld(),true);
+        if(action==='dispose')f.dispose();else f.host.dispatch(action,{});
+        assert.equal(f.dispose.isActivationHeld(),false);f.dispose();
+    }
+});
