@@ -10,6 +10,9 @@ namespace RemoteSpace.Controls;
 public sealed class ProfileEditor : UserControl
 {
     private readonly ConnectionProfile _original;
+    private readonly SemanticLayoutHost _layout = new();
+    private readonly SemanticLayoutHost _scrolledBody = new();
+    private readonly SemanticLayoutHost _additional = new();
     private readonly TextBox _host = Field("PC address");
     private readonly Expander _expansion = new() { Header = "Additional settings", HorizontalAlignment = HorizontalAlignment.Stretch };
     private AdditionalFields? _fields;
@@ -29,24 +32,34 @@ public sealed class ProfileEditor : UserControl
             Text = "Passwords are requested only when connecting and are never saved. Certificate trust is checked; unknown certificates require an explicit fingerprint obtained from the administrator.",
             TextWrapping = TextWrapping.Wrap, Opacity = .7
         });
-        Content = new ScrollViewer { Content = body, MaxHeight = 530, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        // The dialog re-centres when its lazy pages change height. Own that
+        // offset, the scrolled body, and the Expander content inset separately
+        // so unchanged child geometry cannot retain an old absolute origin.
+        _layout.Child = new ScrollViewer { Content = _scrolledBody, MaxHeight = 530, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        Content = _layout;
         _expansion.Expanding += (_, _) => ShowAdditionalSettings();
         _expansion.Collapsed += (_, _) => HideAdditionalSettings();
         // Do not construct detached input controls eagerly. The pinned Skia host
         // registers their semantic peers before they ever enter the visual tree.
         // Editing expands after the actual parent is loaded; a minimal new-PC
         // dialog allocates no additional inputs and creates no hidden peers.
-        Loaded += (_, _) => { if (profile is not null) _expansion.IsExpanded = true; };
+        Loaded += (_, _) =>
+        {
+            AutomationProperties.SetName(_layout, "PC profile editor layout");
+            AutomationProperties.SetName(_scrolledBody, "Scrollable PC settings");
+            _scrolledBody.ShowPanel(body);
+            if (profile is not null) _expansion.IsExpanded = true;
+        };
+        Unloaded += (_, _) => _scrolledBody.ShowPanel(null);
     }
 
     private void ShowAdditionalSettings()
     {
         if (_panel is not null) return;
         _panel = new StackPanel { Spacing = 12 };
-        // A named container supplies a stable semantic parent instead of allowing
-        // detached fields to fall back to the application's accessibility root.
-        AutomationProperties.SetName(_panel, "Additional PC settings");
-        _expansion.Content = _panel;
+        _expansion.Content = _additional;
+        AutomationProperties.SetName(_additional, "Additional PC settings");
+        _additional.ShowPanel(_panel);
         _fields ??= new AdditionalFields(_original);
         foreach (var field in _fields.Controls) _panel.Children.Add(field);
     }
@@ -57,6 +70,7 @@ public sealed class ProfileEditor : UserControl
         // Remove children while their owning parent is still attached. Retain the
         // control values for a later expansion, without mutating detached peers.
         _panel.Children.Clear();
+        _additional.ShowPanel(null);
         _expansion.Content = null;
         _panel = null;
     }
