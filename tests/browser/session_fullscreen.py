@@ -7,6 +7,7 @@ from playwright.async_api import expect
 from driver import command
 from fullscreen_pixels import validate_fullscreen_pixels
 from toolbar_collapse import validate_toolbar_collapse
+from session_control_keys import validate_session_control_keys
 
 async def validate_session_fullscreen(page, metrics, output, passed):
     sizes = list(metrics['sizes'])
@@ -98,3 +99,5 @@ async def validate_session_fullscreen(page, metrics, output, passed):
     await page.screenshot(path=str(output/'20-fullscreen-restored.png'))
     passed('A platform fullscreen exit restores the session controls, with no duplicate peers or remote activation keys')
     passed('Full-screen capture samples and inverse pointer coordinates agree at both entries and restoration without changing server pixels')
+
+    await validate_session_control_keys(page, metrics, output, passed, reference_path)
