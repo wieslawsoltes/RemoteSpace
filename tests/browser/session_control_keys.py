@@ -3,7 +3,7 @@ import asyncio
 import json
 import time
 from playwright.async_api import expect
-from driver import command
+from driver import command, focus_command
 from fullscreen_pixels import validate_fullscreen_pixels
 
 async def validate_session_control_keys(page, metrics, output, passed, reference):
@@ -23,7 +23,7 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
 
     # The Ctrl/Alt makes precede the shortcut. Its local action queues their
     # matching releases. Home/Pause itself must never enter the remote queue.
-    await desktop.focus()
+    await focus_command(page, desktop)
     await page.keyboard.press('Control+Alt+Pause')
     await page.wait_for_function('document.fullscreenElement === document.documentElement')
     await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_be_visible()
@@ -34,7 +34,7 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
 
     await command(page, 'Collapse connection toolbar')
     await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_be_visible()
-    await desktop.focus()
+    await focus_command(page, desktop)
     await page.keyboard.down('Control'); await page.keyboard.down('Alt'); await page.keyboard.down('Home')
     fit = page.get_by_role('button', name='Fit', exact=True)
     await expect(fit).to_be_visible()
@@ -49,7 +49,7 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
     await page.screenshot(path=str(output/'24-shortcut-connection-bar.png'))
     passed('Ctrl+Alt+Home reveals collapsed commands and focuses the first local button; held repeats never enter the remote session')
 
-    await desktop.focus()
+    await focus_command(page, desktop)
     await page.keyboard.press('Control+Alt+Pause')
     await page.wait_for_function('document.fullscreenElement === null')
     await expect(page.get_by_role('button', name='Full screen', exact=True)).to_be_visible()
