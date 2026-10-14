@@ -108,7 +108,7 @@ public sealed partial class SessionControlKeys : IDisposable
     private void KeyUp(object sender, KeyRoutedEventArgs args) { if (_state.KeyUp((uint)args.Key)) args.Handled = true; }
     private void Activated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated) _state.Reset();
+        if (args.WindowActivationState == Windows.UI.Core.CoreWindowActivationState.Deactivated) _state.Reset();
     }
 #endif
     public void Dispose()
