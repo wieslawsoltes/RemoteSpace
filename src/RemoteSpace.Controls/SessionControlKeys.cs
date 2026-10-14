@@ -84,7 +84,8 @@ public sealed partial class SessionControlKeys : IDisposable
     private static bool Down(VirtualKey key) => (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) != 0;
     private void KeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (_disposed) return;
+        // Ordinary typing takes no ancestor walk or native modifier queries.
+        if (_disposed || args.Key is not (VirtualKey.Home or VirtualKey.Pause)) return;
         if (_state.KeyDown((uint)args.Key, false, false, false, false, false, true, out _))
         { args.Handled = true; return; }
         if (args.Handled || !_scope.IsLoaded || !_scope.IsEnabled) return;
@@ -114,19 +115,29 @@ public sealed partial class SessionControlKeys : IDisposable
     {
         if (!_root.DispatcherQueue.HasThreadAccess) throw new InvalidOperationException("Session keys require the owner's UI thread.");
         if (_disposed) return;
-        _disposed = true; _stop.Cancel();
+        _disposed = true;
+        try { _stop.Cancel(); }
+        finally
+        {
+            // A host cancellation callback can throw. The local input owner
+            // must still detach, and cancellation remains observable to caller.
+            try
+            {
 #if __WASM__
-        if (_registered) Unregister(_id);
-        if (_previousId is not null && AutomationProperties.GetAutomationId(_scope) == _id)
-            AutomationProperties.SetAutomationId(_scope, _previousId);
-        _registered = false;
+                try { if (_registered) Unregister(_id); }
+                finally
+                {
+                    _registered = false;
+                    if (_previousId is not null && AutomationProperties.GetAutomationId(_scope) == _id)
+                        AutomationProperties.SetAutomationId(_scope, _previousId);
+                }
 #else
-        _root.PreviewKeyDown -= KeyDown; _root.PreviewKeyUp -= KeyUp;
-        _window.Activated -= Activated; _state.Reset();
+                _root.PreviewKeyDown -= KeyDown; _root.PreviewKeyUp -= KeyUp;
+                _window.Activated -= Activated; _state.Reset();
 #endif
-        // Cancellation callbacks have drained synchronously. The pending action
-        // owns its token; no new work may access this source after disposal.
-        _stop.Dispose();
+            }
+            finally { _stop.Dispose(); }
+        }
     }
 #if __WASM__
     private static readonly Task<JSObject> Module = JSHost.ImportAsync("remotespace.session-keys",
