@@ -14,7 +14,7 @@ public sealed class ProfileEditor : UserControl
     private readonly SemanticLayoutHost _scrolledBody = new();
     private readonly SemanticLayoutHost _additional = new();
     private readonly TextBox _host = Field("PC address");
-    private readonly Expander _expansion = new() { Header = "Additional settings", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly SettingsExpander _expansion = new() { Header = "Additional settings", HorizontalAlignment = HorizontalAlignment.Stretch };
     private AdditionalFields? _fields;
     private StackPanel? _panel;
 

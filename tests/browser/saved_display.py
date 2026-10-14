@@ -35,6 +35,10 @@ async def fixed_local_zoom(page):
     fit = page.get_by_role('checkbox', name='Fit session to window', exact=True)
     zoom = page.get_by_role('combobox', name='Local zoom', exact=True)
     await expect(fit).to_be_checked(timeout=15000)
+    # The expanding container is a group, not a button wrapping other inputs.
+    # Keep the native header toggle separate so role/action retargeting respects
+    # the child's own disabled state and never activates its enclosing form.
+    await expect(zoom.locator('xpath=ancestor::button | ancestor::*[@role="button"]')).to_have_count(0)
     await expect(zoom).to_be_disabled()
     await focus_command(page, fit)
     await page.keyboard.press('Space')
