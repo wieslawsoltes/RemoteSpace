@@ -22,6 +22,7 @@ public sealed partial class RemoteDesktopView
         private SKBitmap? _bitmap, _cursor;
         private RemoteCursor? _cursorInfo;
         private byte[]? _resolvedCursor;
+        private readonly CursorCompositionDamage _cursorDamage = new();
         private int _cursorX, _cursorY;
         private double _offsetX, _offsetY, _presentedWidth, _presentedHeight;
         public event Action? FrameRequested;
@@ -49,7 +50,7 @@ public sealed partial class RemoteDesktopView
         }
         public void Clear()
         {
-            lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; _resolvedCursor = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = PixelInvalidations = 0; _viewport = default; _pixelsChanged = false; }
+            lock (_gate) { _bitmap?.Dispose(); _bitmap = null; _cursor?.Dispose(); _cursor = null; _cursorInfo = null; _resolvedCursor = null; PixelWidth = PixelHeight = 0; AppliedUpdates = PresentedFrames = PixelInvalidations = 0; _viewport = default; _pixelsChanged = false; _cursorDamage.Clear(); }
             MarkDirty();
         }
         public void Resize(int width, int height)
@@ -60,6 +61,7 @@ public sealed partial class RemoteDesktopView
                 var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
                 bitmap.Erase(SKColors.Black); _bitmap?.Dispose(); _bitmap = bitmap;
                 PixelWidth = width; PixelHeight = height; _viewport = default; _pixelsChanged = false;
+                _cursorDamage.InvalidateAll();
             }
             MarkDirty();
         }
@@ -77,6 +79,7 @@ public sealed partial class RemoteDesktopView
                     for (int y = 0; y < update.Height; y++) Marshal.Copy(update.Rgba, y * update.Width * 4,
                         address + (update.Y + y) * _bitmap.RowBytes + update.X * 4, update.Width * 4);
                 _pixelsChanged = true; AppliedUpdates++;
+                _cursorDamage.Invalidate(update.X, update.Y, update.Width, update.Height);
             }
             MarkDirty();
         }
@@ -85,6 +88,7 @@ public sealed partial class RemoteDesktopView
             if (!cursor.Hidden && !cursor.SystemDefault) CursorCompositor.Validate(cursor);
             lock (_gate)
             {
+                _cursorDamage.SetCursor(cursor, _cursorX, _cursorY);
                 _cursor?.Dispose(); _cursor = null; _cursorInfo = cursor;
                 _resolvedCursor = cursor.InvertMask is null ? null : new byte[cursor.Rgba.Length];
                 if (!cursor.Hidden && !cursor.SystemDefault)
@@ -102,6 +106,7 @@ public sealed partial class RemoteDesktopView
             {
                 repaint = _cursor is not null && (_cursorX != x || _cursorY != y);
                 _cursorX = x; _cursorY = y;
+                _cursorDamage.MoveCursor(x, y);
             }
             if (repaint) MarkDirty();
         }
@@ -129,10 +134,11 @@ public sealed partial class RemoteDesktopView
                 PublishPixels(); canvas.DrawBitmap(_bitmap, rect);
                 if (_cursor is not null && _cursorInfo is { } cursor)
                 {
-                    if (_resolvedCursor is not null)
+                    if (_resolvedCursor is not null && _cursorDamage.NeedsResolve)
                     {
                         CursorCompositor.Resolve(cursor, _bitmap.GetPixelSpan(), PixelWidth, PixelHeight, _bitmap.RowBytes, _cursorX, _cursorY, _resolvedCursor);
                         Marshal.Copy(_resolvedCursor, 0, _cursor.GetPixels(), _resolvedCursor.Length); _cursor.NotifyPixelsChanged();
+                        _cursorDamage.MarkResolved();
                     }
                     float sx = (float)(_viewport.Width / PixelWidth), sy = (float)(_viewport.Height / PixelHeight);
                     float x = rect.Left + (_cursorX - cursor.HotX) * sx, y = rect.Top + (_cursorY - cursor.HotY) * sy;

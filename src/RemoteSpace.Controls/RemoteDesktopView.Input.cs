@@ -112,7 +112,7 @@ public sealed partial class RemoteDesktopView
             await queue.FlushAsync(deadline.Token);
         }
     }
-    public void SendSecureAttention() { ReleaseHeldInput(); QueueMany(InputState.SecureAttention()); }
+    public void SendSecureAttention() => SendKeyboardCommand(RemoteKeyboardCommand.SecureAttention);
     public void SendText(string text)
     {
         if (_session?.State != SessionState.Active) throw new InvalidOperationException("The remote desktop is not active.");

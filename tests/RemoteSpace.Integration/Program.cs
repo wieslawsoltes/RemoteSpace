@@ -91,6 +91,10 @@ if (Environment.GetEnvironmentVariable("RDP_TEST_RESIZE") == "1")
     Check(currentWidth == 1024 && currentHeight == 768, "live dynamic-resolution reactivation and new framebuffer updates");
     await Capture("resized.ppm");
 }
+var traffic = ((IRemoteSessionTraffic)session).Traffic;
+Check(traffic.Layer == SessionTrafficLayer.TcpStream && traffic.ReceivedBytes > session.ReceivedBytes && traffic.SentBytes > 0,
+    "live TCP-stream traffic includes framing and TLS in both directions");
+Console.WriteLine($"TRAFFIC layer={traffic.Layer}; received={traffic.ReceivedBytes}; sent={traffic.SentBytes}; excludes TCP/IP headers.");
 await session.DisconnectAsync(); await running;
 async Task Capture(string name)
 {

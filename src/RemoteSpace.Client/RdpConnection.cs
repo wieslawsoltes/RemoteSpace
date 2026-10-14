@@ -27,7 +27,7 @@ public sealed partial class RdpSession
             try
             {
                 SetState(SessionState.Connecting); _tcp = new TcpClient { NoDelay = true };
-                await _tcp.ConnectAsync(options.Host, options.Port, handshake.Token); _stream = _tcp.GetStream();
+                await _tcp.ConnectAsync(options.Host, options.Port, handshake.Token); _stream = new TrafficCountingStream(_tcp.GetStream(), _traffic);
                 SetState(SessionState.Negotiating);
                 var requested = options.Security == SecurityMode.NetworkLevelAuthentication ? SecurityProtocols.Hybrid : SecurityProtocols.Tls;
                 await WriteAsync(Negotiation.Request(requested), handshake.Token);

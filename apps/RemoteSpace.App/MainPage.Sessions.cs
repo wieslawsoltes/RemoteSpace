@@ -52,8 +52,9 @@ public sealed partial class MainPage
             view.SetScale(profile.GetLocalDisplayScale());
             var toolbar = new SessionCommandBar { Title = profile.Name, Status = "Connecting…" };
             toolbar.CommandFailed += ShowError;
-            var panel = new Grid(); panel.RowDefinitions.Add(new() { Height = GridLength.Auto }); panel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-            panel.Children.Add(toolbar); Grid.SetRow(view, 1); panel.Children.Add(view);
+            var panel = new SessionToolbarPresenter(toolbar, view);
+            panel.LocalCommandStarting += view.ReleaseHeldInput;
+            panel.CommandFailed += ShowError;
             // Keep the live surface in a direct visual sibling container, not TabView's
             // logically reparented content: that host loses the strip offset in
             // its browser semantic bounds, corrupting precise input targeting.
@@ -66,20 +67,38 @@ public sealed partial class MainPage
                 opened.Display.Failed += ShowError;
                 opened.Display.AutomaticResolution = profile.UpdateResolutionOnResize;
             }
+            opened.ControlKeys = await SessionControlKeys.AttachAsync(App.MainWindow, this, view, (command, cancellationToken) =>
+            {
+                if (opened.Closing || !_sessions.Contains(opened) || _section != "sessions" || Sessions.SelectedItem != opened.Tab || session.State != SessionState.Active)
+                    throw new InvalidOperationException("Select an active session before using its local shortcuts.");
+                // Modifier makes may already have reached RDP. Queue their matching
+                // releases before moving focus; the command key itself stays local.
+                view.ReleaseHeldInput();
+                return command == SessionControlShortcut.ShowConnectionBar
+                    ? panel.ShowCommandsAsync(cancellationToken)
+                    : ToggleSessionFullscreenAsync(opened);
+            }, ShowError);
             toolbar.AddCommand("Fit", "\uE9A6", () => { view.SetScale(null); view.Focus(FocusState.Programmatic); return Task.CompletedTask; });
             AddDisplayControls(session, view, toolbar, opened.Display);
             AddClipboardCommands(toolbar, opened);
             AddSessionActions(toolbar, opened);
-            toolbar.AddCommand("Full screen", "\uE740", () =>
+            opened.FullScreenButton = toolbar.AddCommand("Full screen", "\uE740", () => ToggleSessionFullscreenAsync(opened));
+            ToolTipService.SetToolTip(opened.FullScreenButton, "Full screen (Ctrl+Alt+Pause)");
+            AutomationProperties.SetHelpText(view, "Remote keyboard and pointer input. Ctrl+Alt+Home shows local connection commands. Ctrl+Alt+Pause switches full screen. Move focus out to release held input.");
+            var status = new SessionStatusCache();
+            bool? automaticStatus = null;
+            void UpdateBar()
             {
-                var appView = ApplicationView.GetForCurrentView();
-                if (appView.IsFullScreenMode) appView.ExitFullScreenMode();
-                else if (!appView.TryEnterFullScreenMode()) throw new InvalidOperationException("Full screen was declined by the host. Try the browser's full-screen command.");
-                return Task.CompletedTask;
-            });
-            void UpdateBar() => toolbar.Status = $"{session.State} · {view.DesktopWidth} × {view.DesktopHeight} · {(view.FitToWindow ? "Fit" : view.Zoom.ToString("0%"))}{(opened.Display?.AutomaticResolution == true ? " · Auto" : "")}";
+                bool changed = status.Update(session.State, view.DesktopWidth, view.DesktopHeight, view.FitToWindow, view.Zoom);
+                bool automatic = opened.Display?.AutomaticResolution == true;
+                if (changed || automatic != automaticStatus)
+                {
+                    automaticStatus = automatic;
+                    toolbar.Status = automatic ? status.Text + " · Auto" : status.Text;
+                }
+            }
             view.ViewChanged += UpdateBar;
-            if (opened.Display is { } controller) controller.Changed += UpdateBar;
+            if (opened.Display is { } displayController) displayController.Changed += UpdateBar;
             if (session is IRemoteGraphicsOutput output)
                 output.OutputEnabledChanged += enabled => DispatcherQueue.TryEnqueue(() => { if (_sessions.Contains(opened)) view.IsEnabled = enabled; });
             view.InputError += ShowError;
@@ -96,6 +115,7 @@ public sealed partial class MainPage
                     if (_section == "sessions" && Sessions.SelectedItem == opened.Tab) view.Focus(FocusState.Programmatic);
                 }
                 if (s != SessionState.Active) view.ReleaseHeldInput();
+                if (!opened.Closing && s is (SessionState.Disconnected or SessionState.Faulted)) _ = ExitEndedFullscreenAsync(opened);
             });
             _sessions.Add(opened); Sessions.TabItems.Add(tab); Sessions.SelectedItem = tab; RefreshSessionState();
             Navigation.SelectedItem = Navigation.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == "sessions");
@@ -110,9 +130,21 @@ public sealed partial class MainPage
             if (token is not null) token.Password = "";
             try
             {
-                if (pendingTab is not null) { if (pendingTab.Display is { } controller) await controller.DisposeAsync(); _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation(); }
-                try { if (pendingView is not null) await pendingView.DisposeAsync(); }
-                finally { if (pendingSession is not null) await pendingSession.DisposeAsync(); }
+                if (pendingTab is not null || pendingView is not null || pendingSession is not null)
+                    await AsyncCleanupSequence.RunAsync(
+                        () => pendingTab?.Display?.DisposeAsync() ?? ValueTask.CompletedTask,
+                        () => { pendingTab?.ControlKeys?.Dispose(); return ValueTask.CompletedTask; },
+                        () =>
+                        {
+                            if (pendingTab is not null)
+                            {
+                                _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab);
+                                pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation();
+                            }
+                            return ValueTask.CompletedTask;
+                        },
+                        () => pendingView?.DisposeAsync() ?? ValueTask.CompletedTask,
+                        () => pendingSession?.DisposeAsync() ?? ValueTask.CompletedTask);
             }
             catch (Exception e) { ShowError("Connection setup cleanup failed: " + e.GetType().Name); }
             finally { _dialogOpen = false; }
@@ -132,30 +164,67 @@ public sealed partial class MainPage
     private async Task CloseSessionAsync(OpenSession opened)
     {
         if (opened.Closing || !_sessions.Contains(opened)) return;
-        if (opened.Session.State == SessionState.Active && !await Confirm("Disconnect session", "Disconnect from " + opened.Profile.Name + "? Programs running on the remote PC are not closed.", "Disconnect")) return;
+        // Reserve before awaiting confirmation: repeated commands share the
+        // existing close intent rather than opening another confirmation.
         opened.Closing = true;
+        bool cleanupStarted = false;
+        Exception? failure = null;
         try
         {
-            if (opened.Display is { } controller) await controller.DisposeAsync();
-            await opened.View.AttachAsync(null); opened.Stop.Cancel(); await opened.Session.DisconnectAsync(); await opened.Running;
-            await opened.View.DisposeAsync(); await opened.Session.DisposeAsync(); opened.Stop.Dispose();
-            _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab); RefreshSessionState(); RefreshSessionPresentation();
+            if (opened.Session.State == SessionState.Active && !await Confirm("Disconnect session", "Disconnect from " + opened.Profile.Name + "? Programs running on the remote PC are not closed.", "Disconnect")) return;
+            cleanupStarted = true;
+            await AsyncCleanupSequence.RunAsync(
+                () => opened.Display?.DisposeAsync() ?? ValueTask.CompletedTask,
+                () => { opened.ControlKeys?.Dispose(); return ValueTask.CompletedTask; },
+                () => new ValueTask(ExitSessionFullscreenAsync(opened)),
+                () => new ValueTask(opened.View.AttachAsync(null)),
+                () => { opened.Stop.Cancel(); return ValueTask.CompletedTask; },
+                () => opened.Session.DisconnectAsync(),
+                () => new ValueTask(opened.Running),
+                () => opened.View.DisposeAsync(),
+                () => opened.Session.DisposeAsync(),
+                () => { opened.Stop.Dispose(); return ValueTask.CompletedTask; });
         }
-        catch (Exception e) { opened.Closing = false; ShowError(e.Message); }
+        catch (Exception error) { failure = error; }
+        finally
+        {
+            if (cleanupStarted)
+            {
+                _sessions.Remove(opened); Sessions.TabItems.Remove(opened.Tab);
+                RefreshSessionState(); RefreshSessionPresentation();
+            }
+            else
+            {
+                opened.Closing = false;
+                // The server may end while confirmation is open. Cancelling
+                // that dialog must not strand the now-ended fullscreen view.
+                if (opened.Session.State is SessionState.Disconnected or SessionState.Faulted)
+                    _ = ExitEndedFullscreenAsync(opened);
+            }
+        }
+        if (failure is not null)
+        {
+            string message = failure is AggregateException multiple
+                ? string.Join("; ", multiple.Flatten().InnerExceptions.Select(error => error.Message))
+                : failure.Message;
+            ShowError("Session cleanup reported: " + message);
+        }
     }
     private void SessionSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         foreach (var opened in _sessions) if (Sessions.SelectedItem != opened.Tab) opened.View.ReleaseHeldInput();
         RefreshSessionPresentation();
     }
-    private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab, Grid panel)
+    private sealed class OpenSession(ConnectionProfile profile, IRemoteSession session, RemoteDesktopView view, TabViewItem tab, SessionToolbarPresenter panel)
     {
         public ConnectionProfile Profile { get; } = profile;
         public IRemoteSession Session { get; } = session;
         public SessionDisplayController? Display { get; set; }
         public RemoteDesktopView View { get; } = view;
         public TabViewItem Tab { get; set; } = tab;
-        public Grid Panel { get; } = panel;
+        public SessionToolbarPresenter Panel { get; } = panel;
+        public Button? FullScreenButton { get; set; }
+        public SessionControlKeys? ControlKeys { get; set; }
         public CancellationTokenSource Stop { get; } = new();
         public Task Running { get; set; } = Task.CompletedTask;
         public string? RemoteClipboard { get; set; }

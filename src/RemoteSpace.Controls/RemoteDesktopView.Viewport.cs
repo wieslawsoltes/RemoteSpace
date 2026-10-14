@@ -101,21 +101,7 @@ public sealed partial class RemoteDesktopView
     }
     private static void HandleScrollKey(ScrollBar bar, KeyRoutedEventArgs e)
     {
-        double target;
-        switch (e.Key)
-        {
-            case VirtualKey.Home: target = bar.Minimum; break;
-            case VirtualKey.End: target = bar.Maximum; break;
-            case VirtualKey.PageUp: target = bar.Value - bar.LargeChange; break;
-            case VirtualKey.PageDown: target = bar.Value + bar.LargeChange; break;
-            case VirtualKey.Left when bar.Orientation == Orientation.Horizontal:
-            case VirtualKey.Up when bar.Orientation == Orientation.Vertical: target = bar.Value - bar.SmallChange; break;
-            case VirtualKey.Right when bar.Orientation == Orientation.Horizontal:
-            case VirtualKey.Down when bar.Orientation == Orientation.Vertical: target = bar.Value + bar.SmallChange; break;
-            default: return;
-        }
-        e.Handled = true;
-        bar.Value = Math.Clamp(target, bar.Minimum, bar.Maximum);
+        if (ScrollBarNavigation.Apply(bar, e.Key)) e.Handled = true;
     }
     private bool IsScrollBarInput(object source)
     {

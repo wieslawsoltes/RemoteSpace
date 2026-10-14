@@ -77,8 +77,8 @@ public sealed partial class RemoteDesktopView : ContentControl, IAsyncDisposable
             if (_disposed && session is not null) throw new ObjectDisposedException(nameof(RemoteDesktopView));
             if (session is not null)
             {
-                _horizontalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_horizontal);
-                _verticalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_vertical);
+                _horizontalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_horizontal, ReleaseHeldInput);
+                _verticalFocus ??= await BrowserScrollBarFocus.RegisterAsync(_vertical, ReleaseHeldInput);
             }
             if (_session is { } old)
             {

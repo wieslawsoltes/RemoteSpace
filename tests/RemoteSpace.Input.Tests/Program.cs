@@ -43,6 +43,7 @@ Check(!RemoteInputValidation.IsPositioned(new(InputKind.Pointer,0x0278,0,65535,6
 var state = new InputState();
 Check(state.ExtendedButton(1,true,4,5) == new RemoteInput(InputKind.ExtendedPointer,0x8001,0,4,5),"fourth button down");
 Check(state.ExtendedButton(1,true,4,5) is null,"duplicate fourth button down ignored");
+state.ExtendedButton(1,true,4,5);
 state.ExtendedButton(2,true,4,5); state.Button(0x1000,true,4,5); state.Move(20,30);
 var releases = state.ReleaseAll();
 Check(releases.Length==3 && releases.Count(e=>e.Kind==InputKind.ExtendedPointer)==2 && releases.All(e=>e.X==20 && e.Y==30),"focus loss releases standard and extended buttons at current location");
@@ -74,3 +75,4 @@ Check(batchAllocated<singleAllocated/2,"batched encoder allocation reduction");
 Console.WriteLine($"PERFORMANCE input encoding: single={singleAllocated} allocated bytes; batch={batchAllocated}; input-only microbenchmark.");
 QueueTests.Run(Check).GetAwaiter().GetResult();
 Console.WriteLine($"RESULT: {checks} input checks passed.");
+KeyboardCommandTests.RunAsync().GetAwaiter().GetResult();

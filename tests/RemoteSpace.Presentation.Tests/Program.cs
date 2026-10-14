@@ -73,4 +73,10 @@ long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
 Check(allocated == 0 && sum > 0, "100000 viewport layouts allocate zero managed bytes after warmup");
 Console.WriteLine($"RESULT: {checks} presentation, viewport and invalid-input checks passed.");
 
+SessionStatusTests.Run();
+
+ConnectionToolbarTests.Run();
+
+SessionControlShortcutTests.Run();
+
 AutomaticResizeTests.RunAsync().GetAwaiter().GetResult();

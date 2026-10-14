@@ -21,9 +21,20 @@ public sealed partial class MainPage
         if (visible && !_tabsVisible) RestoreSessionTabs();
         _tabsVisible = visible;
         var selected = _sessions.FirstOrDefault(s => Sessions.SelectedItem == s.Tab);
-        SessionContent.ShowPanel(_section == "sessions" ? selected?.Panel : null);
+        var live = visible ? selected : null;
+        if (_isSessionFullscreen)
+        {
+            SessionContent.ShowPanel(null);
+            _fullScreenPanel.ShowPanel(ReferenceEquals(live, _fullScreenSession) ? live?.Panel : null);
+        }
+        else
+        {
+            _fullScreenPanel.ShowPanel(null);
+            SessionContent.ShowPanel(live?.Panel);
+        }
         foreach (var session in _sessions)
-            session.View.IsPresentationActive = _section == "sessions" && ReferenceEquals(selected, session);
+            session.View.IsPresentationActive = ReferenceEquals(live, session) &&
+                (!_isSessionFullscreen || ReferenceEquals(_fullScreenSession, session));
     }
     private void RestoreSessionTabs()
     {
@@ -50,12 +61,13 @@ public sealed partial class MainPage
 
     private void AddSessionActions(SessionCommandBar bar, OpenSession opened)
     {
+        AddKeyboardCommands(bar, opened);
         bar.AddMenu("Session actions", "\uE712", () =>
         {
             var menu = new MenuFlyout(); bool active = opened.Session.State == SessionState.Active;
             AddGraphicsOutputControls(opened, bar, menu);
             menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(bar.MenuCommand("Ctrl+Alt+Del", () => { opened.View.SendSecureAttention(); return Task.CompletedTask; }, active));
+            menu.Items.Add(bar.MenuCommand("Ctrl+Alt+Del", () => { opened.View.SendSecureAttention(); return Task.CompletedTask; }, active && opened.View.IsEnabled));
             menu.Items.Add(bar.MenuCommand("Capture", async () =>
             {
                 if (await _fileAccess.ExportAsync(opened.Profile.Name + "-desktop.png", opened.View.CapturePng(), "image/png"))

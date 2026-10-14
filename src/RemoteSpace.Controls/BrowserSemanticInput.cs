@@ -12,20 +12,37 @@ namespace RemoteSpace.Controls;
 /// providers are replaced. Native hosts require no adaptation.</summary>
 public static partial class BrowserSemanticInput
 {
+    /// <summary>Only the adapter-owned Enter/Space gestures. This is queried by
+    /// an active release wait, never by an idle timer. Native hosts continue to
+    /// use the platform key state; no remote/text input is exposed here.</summary>
+    internal static bool IsActivationHeld
+    {
+        get
+        {
+#if __WASM__
+            return _ready && ReadActivationHeld();
+#else
+            return false;
+#endif
+        }
+    }
     public static async Task InitializeAsync()
     {
 #if __WASM__
         await Module;
-        Install();
+        Install(); _ready = true;
 #else
         await Task.CompletedTask;
 #endif
     }
 #if __WASM__
+    private static bool _ready;
     private static readonly Task<JSObject> Module = JSHost.ImportAsync("remotespace.semantic-input",
         "data:text/javascript;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(Source)));
     [JSImport("install", "remotespace.semantic-input")]
     private static partial void Install();
+    [JSImport("isActivationHeld", "remotespace.semantic-input")]
+    private static partial bool ReadActivationHeld();
     private const string Source = """
 let installedRoot, dispose;
 export function bind(root, host) {
@@ -80,13 +97,18 @@ export function bind(root, host) {
     host.addEventListener('keyup', up, true);
     host.addEventListener('blur', clear);
     host.addEventListener('pagehide', clear);
-    return () => {
+    const unbind = () => {
         clear(); root.removeEventListener('keydown', down);
         host.removeEventListener('keydown', repeat, true);
         host.removeEventListener('keyup', up, true);
         host.removeEventListener('blur', clear); host.removeEventListener('pagehide', clear);
     };
+    // Keep bind's callable disposal contract, exposing only a bounded boolean
+    // view of gestures which are intentionally absent from native key routing.
+    unbind.isActivationHeld = () => held.size !== 0 || buttonKeys.size !== 0;
+    return unbind;
 }
+export function isActivationHeld() { return dispose?.isActivationHeld() ?? false; }
 export function install() {
     const root = document.getElementById('uno-semantics-root');
     if (!root) throw new Error('The Uno accessibility event root is not ready.');
