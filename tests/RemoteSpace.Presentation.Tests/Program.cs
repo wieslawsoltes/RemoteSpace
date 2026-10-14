@@ -76,3 +76,5 @@ Console.WriteLine($"RESULT: {checks} presentation, viewport and invalid-input ch
 SessionStatusTests.Run();
 
 ConnectionToolbarTests.Run();
+
+SessionControlShortcutTests.Run();

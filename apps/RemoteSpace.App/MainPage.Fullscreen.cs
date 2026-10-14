@@ -127,7 +127,7 @@ public sealed partial class MainPage
             bool exit = active && ReferenceEquals(_fullScreenSession, session);
             string name = exit ? "Exit full screen" : "Full screen";
             AutomationProperties.SetName(button, name);
-            ToolTipService.SetToolTip(button, exit ? "Exit full screen (or use the browser's Escape command)" : name);
+            ToolTipService.SetToolTip(button, exit ? "Exit full screen (Ctrl+Alt+Pause, or the browser's Escape command)" : "Full screen (Ctrl+Alt+Pause)");
             if (button.Content is FontIcon icon) icon.Glyph = exit ? "\uE73F" : "\uE740";
         }
     }

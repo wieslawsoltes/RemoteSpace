@@ -88,6 +88,8 @@ jobs:
         run: /tmp/remote-browser-tests/bin/python tests/browser/fullscreen_service_native.py artifacts/browser-validation/fullscreen-service
       - name: Validate owned semantic activation and release state
         run: /tmp/remote-browser-tests/bin/python tests/browser/semantic_input_native.py artifacts/browser-validation/semantic-input
+      - name: Validate local session keyboard shortcuts
+        run: /tmp/remote-browser-tests/bin/python tests/browser/session_control_keys_native.py artifacts/browser-validation/session-control-keys
       - name: Validate the actual browser workspace
         run: /tmp/remote-browser-tests/bin/python tests/browser/workspace.py artifacts/browser artifacts/browser-validation
       - uses: actions/upload-artifact@v4
