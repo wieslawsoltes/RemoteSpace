@@ -95,3 +95,25 @@ ownership. No detached input properties are patched. The original absent-peer
 assertion remains, with an additional pre-gesture absence check and explicit
 local-focus checks after both transitions. No DOM metadata, raster thresholds,
 keyboard events or remote input coordinates are rewritten by the tests.
+
+
+## Reattachment and focus restoration
+
+The real full-app run at `0b162750` passed collapse pixels and pointer mapping but
+exposed focus restoration running before the command subtree's Loaded handlers.
+`ControlFocus.WhenReadyAsync` now waits for real load/layout readiness and a single
+low-priority dispatcher handoff before one native focus attempt. Cancellation,
+unload, completion and a five-second deadline remove every temporary hook. It
+uses no DOM focus calls, polling or retry loop. The unchanged automatic-focus
+assertions then passed at `7c48b801`, including both Enter/Space cycles.
+
+That next run reached the separate exit/re-enter/collapse regression. The reveal
+button was visibly painted at the correct compact top-centred geometry, but its
+retained structural semantic parent still had `hidden` from the prior fullscreen
+lifecycle. Its child and geometry were otherwise correct. The reveal owner is
+now normally attached only while shown, and detached along with its input subtree
+while expanded. The same bounded host and button objects are reused; there is no
+Collapsed owner waiting for an unchanged-layout visibility notification. The
+desktop owner and framebuffer are unaffected. The tests retain the second-entry
+visibility assertion and also require that the reveal owner itself is absent
+after restoring the workspace, rather than accepting a hidden leftover peer.

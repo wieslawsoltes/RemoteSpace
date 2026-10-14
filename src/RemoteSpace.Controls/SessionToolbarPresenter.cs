@@ -17,8 +17,7 @@ public sealed class SessionToolbarPresenter : Grid
     private readonly SemanticLayoutHost _revealHost = new()
     {
         HorizontalAlignment = HorizontalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Top,
-        Visibility = Visibility.Collapsed
+        VerticalAlignment = VerticalAlignment.Top
     };
     private readonly Grid _toolbarPanel = new(), _revealPanel = new();
     private readonly FrameworkElement _desktop;
@@ -41,12 +40,12 @@ public sealed class SessionToolbarPresenter : Grid
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         Children.Add(_toolbarHost);
         SetRow(_desktopHost, 1); Children.Add(_desktopHost);
-        // Added last, the small native button paints above the full-height
-        // desktop. The rest of this row still belongs to the remote view.
-        SetRow(_revealHost, 1); Children.Add(_revealHost);
+        // Attach the reveal owner only while it is shown. Retaining an empty,
+        // Collapsed semantic owner across fullscreen reparenting can leave its
+        // browser peer hidden when unchanged geometry is later restored.
+        SetRow(_revealHost, 1);
         AutomationProperties.SetName(_toolbarHost, "Session toolbar layout");
         AutomationProperties.SetName(_desktopHost, "Session desktop layout");
-        AutomationProperties.SetName(_revealHost, "Collapsed connection toolbar");
         _collapse = toolbar.AddCommand("Collapse connection toolbar", "\uE70E", () => SetCollapsedAsync(true));
         _collapse.Visibility = Visibility.Collapsed;
         Loaded += (_, _) =>
@@ -107,14 +106,28 @@ public sealed class SessionToolbarPresenter : Grid
     {
         _collapse.Visibility = _state.IsFullscreen ? Visibility.Visible : Visibility.Collapsed;
         _toolbarHost.Visibility = _state.IsCollapsed ? Visibility.Collapsed : Visibility.Visible;
-        _revealHost.Visibility = _state.IsCollapsed ? Visibility.Visible : Visibility.Collapsed;
+        if (!_state.IsCollapsed)
+        {
+            _revealHost.ShowPanel(null);
+            if (_revealHost.Parent is not null) Children.Remove(_revealHost);
+        }
         if (!IsLoaded) return;
         // Detaching the toolbar input subtree prevents invisible menu/button
         // peers. Only the bounded bar hierarchy is reattached on an explicit
         // user transition; neither normal layout nor remote frames rebuild it.
         _toolbarHost.ShowPanel(_state.IsCollapsed ? null : _toolbarPanel);
-        _revealHost.ShowPanel(_state.IsCollapsed ? _revealPanel : null);
-        if (_state.IsCollapsed) EnsureRevealButton();
+        if (_state.IsCollapsed)
+        {
+            if (_revealHost.Parent is null)
+            {
+                // Added last, this compact sibling paints above the desktop.
+                // Name it only after attachment, never at a fallback root.
+                Children.Add(_revealHost);
+                AutomationProperties.SetName(_revealHost, "Collapsed connection toolbar");
+            }
+            _revealHost.ShowPanel(_revealPanel);
+            EnsureRevealButton();
+        }
     }
     private void EnsureRevealButton()
     {

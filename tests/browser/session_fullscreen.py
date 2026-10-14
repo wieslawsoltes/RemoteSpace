@@ -58,6 +58,7 @@ async def validate_session_fullscreen(page, metrics, output, passed):
         await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_have_count(0)
         await expect(page.get_by_role('button', name='Collapse connection toolbar', exact=True)).to_have_count(0)
         await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_have_count(0)
+        await expect(page.locator('[aria-label="Collapsed connection toolbar"]')).to_have_count(0)
         await expect(page.get_by_role('button', name='About RemoteSpace', exact=True)).to_be_visible()
         await expect(page.get_by_role('tab', name='Loopback desktop', exact=True)).to_be_visible()
         await expect(page.get_by_role('button', name='Close Tab', exact=True)).to_be_visible()
