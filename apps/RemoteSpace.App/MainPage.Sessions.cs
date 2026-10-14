@@ -117,9 +117,20 @@ public sealed partial class MainPage
             if (token is not null) token.Password = "";
             try
             {
-                if (pendingTab is not null) { _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab); pendingTab.ControlKeys?.Dispose(); pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation(); }
-                try { if (pendingView is not null) await pendingView.DisposeAsync(); }
-                finally { if (pendingSession is not null) await pendingSession.DisposeAsync(); }
+                if (pendingTab is not null || pendingView is not null || pendingSession is not null)
+                    await AsyncCleanupSequence.RunAsync(
+                        () => { pendingTab?.ControlKeys?.Dispose(); return ValueTask.CompletedTask; },
+                        () =>
+                        {
+                            if (pendingTab is not null)
+                            {
+                                _sessions.Remove(pendingTab); Sessions.TabItems.Remove(pendingTab.Tab);
+                                pendingTab.Stop.Dispose(); RefreshSessionState(); RefreshSessionPresentation();
+                            }
+                            return ValueTask.CompletedTask;
+                        },
+                        () => pendingView?.DisposeAsync() ?? ValueTask.CompletedTask,
+                        () => pendingSession?.DisposeAsync() ?? ValueTask.CompletedTask);
             }
             catch (Exception e) { ShowError("Connection setup cleanup failed: " + e.GetType().Name); }
             finally { _dialogOpen = false; }

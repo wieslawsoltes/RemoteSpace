@@ -6,7 +6,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using RemoteSpace.Core;
 using Windows.System;
-using Windows.UI.Core;
+using CoreVirtualKeyStates = Windows.UI.Core.CoreVirtualKeyStates;
 #if __WASM__
 using System.Runtime.InteropServices.JavaScript;
 using System.Text;
