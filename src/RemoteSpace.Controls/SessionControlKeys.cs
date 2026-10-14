@@ -56,6 +56,11 @@ public sealed partial class SessionControlKeys : IDisposable
             AutomationProperties.SetAutomationId(scope, owner._id);
             Register(owner._id, owner.Dispatch);
             owner._registered = true;
+            scope.GotFocus += owner.FocusChanged;
+            scope.LostFocus += owner.FocusChanged;
+            scope.Loaded += owner.FocusChanged;
+            scope.Unloaded += owner.ScopeUnloaded;
+            owner.PublishNativeFocus();
 #else
             root.PreviewKeyDown += owner.KeyDown;
             root.PreviewKeyUp += owner.KeyUp;
@@ -70,17 +75,31 @@ public sealed partial class SessionControlKeys : IDisposable
     // Invocation remains on the incoming activation stack until the host's own
     // first await, allowing its ordinary requestFullscreen call to use that
     // user activation. New commands while one runs are not queued.
-    private async void Dispatch(int value)
+    private async void Dispatch(int value, bool requiresNativeFocus)
     {
         if (_disposed || _busy || !_scope.IsLoaded || !_scope.IsEnabled) return;
         if (value is not (1 or 2)) return;
+        if (requiresNativeFocus && (_scope.XamlRoot is null ||
+            !ReferenceEquals(FocusManager.GetFocusedElement(_scope.XamlRoot), _scope))) return;
         _busy = true;
         try { await _execute((SessionControlShortcut)value, _stop.Token); }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
         catch (Exception error) { if (!_disposed) _report("Session shortcut: " + error.Message); }
         finally { _busy = false; }
     }
-#if !__WASM__
+#if __WASM__
+    private void FocusChanged(object sender, RoutedEventArgs args) => PublishNativeFocus();
+    private void ScopeUnloaded(object sender, RoutedEventArgs args)
+    {
+        if (_registered && !_disposed) SetNativeFocus(_id, false);
+    }
+    private void PublishNativeFocus()
+    {
+        if (!_registered || _disposed) return;
+        SetNativeFocus(_id, _scope.IsLoaded && _scope.XamlRoot is not null &&
+            ReferenceEquals(FocusManager.GetFocusedElement(_scope.XamlRoot), _scope));
+    }
+#else
     private static bool Down(VirtualKey key) => (InputKeyboardSource.GetKeyStateForCurrentThread(key) & CoreVirtualKeyStates.Down) != 0;
     private void KeyDown(object sender, KeyRoutedEventArgs args)
     {
@@ -102,7 +121,7 @@ public sealed partial class SessionControlKeys : IDisposable
             Down(VirtualKey.LeftWindows) || Down(VirtualKey.RightWindows), Down(VirtualKey.RightMenu), args.KeyStatus.WasKeyDown, out var command))
         {
             args.Handled = true;
-            if (command != SessionControlShortcut.None) Dispatch((int)command);
+            if (command != SessionControlShortcut.None) Dispatch((int)command, false);
         }
     }
     private void KeyUp(object sender, KeyRoutedEventArgs args) { if (_state.KeyUp((uint)args.Key)) args.Handled = true; }
@@ -124,6 +143,8 @@ public sealed partial class SessionControlKeys : IDisposable
             try
             {
 #if __WASM__
+                _scope.GotFocus -= FocusChanged; _scope.LostFocus -= FocusChanged;
+                _scope.Loaded -= FocusChanged; _scope.Unloaded -= ScopeUnloaded;
                 try { if (_registered) Unregister(_id); }
                 finally
                 {
@@ -143,11 +164,13 @@ public sealed partial class SessionControlKeys : IDisposable
     private static readonly Task<JSObject> Module = JSHost.ImportAsync("remotespace.session-keys",
         "data:text/javascript;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(Source)));
     [JSImport("register", "remotespace.session-keys")]
-    private static partial void Register(string id, [JSMarshalAs<JSType.Function<JSType.Number>>] Action<int> execute);
+    private static partial void Register(string id, [JSMarshalAs<JSType.Function<JSType.Number, JSType.Boolean>>] Action<int, bool> execute);
     [JSImport("unregister", "remotespace.session-keys")]
     private static partial void Unregister(string id);
+    [JSImport("setNativeFocus", "remotespace.session-keys")]
+    private static partial void SetNativeFocus(string id, bool focused);
     private const string Source = """
-export function bind(root, host, registrations) {
+export function bind(root, host, registrations, getNativeFocus = () => undefined, doc = root?.ownerDocument) {
     // Two fixed physical command keys; no arbitrary input or event objects.
     const held = new Map();
     const key = event => event.code === 'Home' ? 1 : event.code === 'Pause' ? 2 : 0;
@@ -159,17 +182,32 @@ export function bind(root, host, registrations) {
         if (event.defaultPrevented || event.repeat || event.isComposing || !event.ctrlKey || !event.altKey ||
             event.shiftKey || event.metaKey || event.getModifierState?.('AltGraph')) return;
         const path = event.composedPath();
-        if (!path.includes(root) || path.some(node => node?.tagName === 'INPUT' || node?.tagName === 'TEXTAREA' ||
+        if (path.some(node => node?.tagName === 'INPUT' || node?.tagName === 'TEXTAREA' ||
             node?.isContentEditable || node?.getAttribute?.('role') === 'dialog')) return;
-        for (const node of path) {
-            const id = node?.getAttribute?.('xamlautomationid');
-            const execute = id && registrations.get(id);
-            if (!execute) continue;
-            held.set(command, id);
-            stop(event);
-            execute(command);
-            return;
+        const semanticRoot = typeof root === 'function' ? root() : root;
+        if (semanticRoot && path.includes(semanticRoot)) {
+            for (const node of path) {
+                const id = node?.getAttribute?.('xamlautomationid');
+                const execute = id && registrations.get(id);
+                if (!execute) continue;
+                held.set(command, id);
+                stop(event);
+                execute(command, false);
+                return;
+            }
+            return; // A local semantic command cannot borrow stale desktop focus.
         }
+        // Without accessibility peers, Uno receives keys at its primary canvas
+        // or document root. Only native focus published by an attached scope
+        // grants fallback ownership. Arbitrary DOM/canvas targets are excluded.
+        const target = path[0];
+        if (!target || !doc || (target !== doc.body && target !== doc.documentElement &&
+            target !== doc.getElementById('uno-canvas'))) return;
+        const id = getNativeFocus(), execute = id && registrations.get(id);
+        if (!execute) return;
+        held.set(command, id);
+        stop(event);
+        execute(command, true);
     };
     const up = event => { if (held.delete(key(event))) stop(event); };
     const clear = () => held.clear();
@@ -186,19 +224,27 @@ export function bind(root, host, registrations) {
     };
 }
 const registrations = new Map();
-let router, currentRoot;
+let router, nativeFocus;
 export function register(id, execute) {
     if (!id || typeof execute !== 'function') throw new Error('Invalid session shortcut registration.');
     if (registrations.has(id)) throw new Error('Session shortcuts already registered.');
     if (registrations.size >= 32) throw new Error('Session shortcut registration limit exceeded.');
-    const root = document.getElementById('uno-semantics-root');
-    if (!root) throw new Error('The Uno semantic root is not ready.');
-    if (root !== currentRoot) { router?.dispose(); router = bind(root, globalThis, registrations); currentRoot = root; }
+    if (!document.getElementById('uno-semantics-root') && !document.getElementById('uno-canvas'))
+        throw new Error('The Uno input host is not ready.');
+    // Resolve the semantic root only for a candidate chord: accessibility can
+    // be enabled after the session starts, without replacing this registration.
+    router ??= bind(() => document.getElementById('uno-semantics-root'), globalThis,
+        registrations, () => nativeFocus, document);
     registrations.set(id, execute);
+}
+export function setNativeFocus(id, focused) {
+    if (focused && registrations.has(id)) nativeFocus = id;
+    else if (nativeFocus === id) nativeFocus = undefined;
 }
 export function unregister(id) {
     registrations.delete(id); router?.forget(id);
-    if (!registrations.size) { router?.dispose(); router = currentRoot = undefined; }
+    if (nativeFocus === id) nativeFocus = undefined;
+    if (!registrations.size) { router?.dispose(); router = nativeFocus = undefined; }
 }
 """;
 #endif

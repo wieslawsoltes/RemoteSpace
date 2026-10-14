@@ -5,7 +5,7 @@ import re
 import subprocess
 import time
 from playwright.async_api import expect
-from driver import command, focus_command
+from driver import command
 from fullscreen_pixels import validate_fullscreen_pixels
 
 async def validate_session_control_keys(page, metrics, output, passed, reference):
@@ -17,6 +17,35 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
     def input_log():
         return subprocess.run(['sudo', 'cat', '/home/rdptest/input-events.log'],
                               check=True, capture_output=True, text=True, timeout=3).stdout
+
+    async def native_focus(name):
+        nonlocal expected
+        # Click the painted desktop through the real Uno canvas. Focusing its
+        # accessibility proxy alone can leave native input on a local command.
+        # The independent server button release proves this focus click reached
+        # the active remote view before the modifier-only checkpoint is taken.
+        await expect(desktop).to_be_visible()
+        bounds = await desktop.bounding_box()
+        start = len(input_log())
+        await page.mouse.click(bounds['x'] + bounds['width'] * .7, bounds['y'] + bounds['height'] * .7)
+        deadline = time.monotonic() + 10
+        while not re.search(r'EVENT type 16 \(RawButtonRelease\).*?detail:\s*1\b', input_log()[start:], re.S):
+            if time.monotonic() > deadline:
+                raise AssertionError('Native desktop focus click did not reach the remote input consumer.')
+            await asyncio.sleep(.05)
+        # Leave the pointer on local chrome, not on a desktop coordinate that
+        # moves during the next layout transition. This does not change focus.
+        if await page.get_by_role('button', name='Expand connection toolbar', exact=True).count():
+            await page.mouse.move((await page.evaluate('innerWidth')) / 2, 8)
+        else:
+            await page.mouse.move(4, 4)
+        await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        state = await page.evaluate("""() => ({tag:document.activeElement?.tagName,
+            id:document.activeElement?.id,
+            automation:document.activeElement?.getAttribute('xamlautomationid')})""")
+        (output / (name + '.focus.json')).write_text(json.dumps(state, indent=2))
+        expected = metrics['input_packets']
+        return len(input_log())
 
     async def drained(count, start, name):
         deadline = time.monotonic() + 10
@@ -46,8 +75,7 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
 
     # The Ctrl/Alt makes precede the shortcut. Its local action queues their
     # matching releases. Home/Pause itself must never enter the remote queue.
-    await focus_command(page, desktop)
-    remote_start = len(input_log())
+    remote_start = await native_focus('23-shortcut-fullscreen')
     await page.keyboard.press('Control+Alt+Pause')
     await page.wait_for_function('document.fullscreenElement === document.documentElement')
     await expect(page.get_by_role('button', name='Exit full screen', exact=True)).to_be_visible()
@@ -58,8 +86,7 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
 
     await command(page, 'Collapse connection toolbar')
     await expect(page.get_by_role('button', name='Expand connection toolbar', exact=True)).to_be_visible()
-    await focus_command(page, desktop)
-    remote_start = len(input_log())
+    remote_start = await native_focus('24-shortcut-connection-bar')
     await page.keyboard.down('Control'); await page.keyboard.down('Alt'); await page.keyboard.down('Home')
     fit = page.get_by_role('button', name='Fit', exact=True)
     await expect(fit).to_be_visible()
@@ -74,8 +101,7 @@ async def validate_session_control_keys(page, metrics, output, passed, reference
     await page.screenshot(path=str(output/'24-shortcut-connection-bar.png'))
     passed('Ctrl+Alt+Home reveals collapsed commands and focuses the first local button; held repeats never enter the remote session')
 
-    await focus_command(page, desktop)
-    remote_start = len(input_log())
+    remote_start = await native_focus('25-shortcut-windowed')
     await page.keyboard.press('Control+Alt+Pause')
     await page.wait_for_function('document.fullscreenElement === null')
     await expect(page.get_by_role('button', name='Full screen', exact=True)).to_be_visible()

@@ -32,7 +32,12 @@ callback throws. The app includes this owner in its failure-tolerant close path.
 
 The browser's exact embedded module shares one capture listener among bounded
 session registrations. It examines only Home/Pause command keys and matches the
-registered view's public automation ID in the event path. It does not copy
+registered view's public automation ID in the event path. Without accessibility
+peers, a native focus notification authorizes only Uno's primary canvas or the
+document root. The managed command then rechecks the public FocusManager's actual
+focused control. A local semantic button or editable field cannot borrow that
+fallback focus. Accessibility can be enabled after registration; it is not
+required for ordinary canvas input. It does not copy
 arbitrary typing, event objects, credentials, or a key history. Ordinary input
 returns before event-path creation. The native path similarly rejects other keys
 before walking ancestors or querying modifier state. No idle timer, polling,
@@ -68,7 +73,11 @@ platform APIs. Consult exact-revision logs for executed results; assertions alon
 are not measurements.
 
 The full Uno/authorized XRDP suite independently observes the real transport:
-only balanced modifier makes/releases may accompany a shortcut. It checks local
+only balanced modifier makes/releases may accompany a shortcut. A real canvas
+mouse click establishes native remote focus first, and the independently observed
+remote button release completes that checkpoint. The test then checks exact
+modifier packets and the server's matching Xorg make/break events, not just a
+focused accessibility proxy. It checks local
 focus after held Home, actual fullscreen entry/exit, original-Capture PNG samples,
 inverse remote pointer mapping, windowed geometry restoration, and unchanged
 server sizes/layout requests. It reuses the existing PNG rather than increasing

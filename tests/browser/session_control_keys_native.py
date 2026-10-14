@@ -24,7 +24,10 @@ async def run(output):
             await page.add_script_tag(type='module', content=source+'''
                 globalThis.commands=[];globalThis.ordinary=0;globalThis.result=null;
                 globalThis.removeSession=()=>unregister('session');
-                register('session',command=>{
+                globalThis.nativeFocus=value=>setNativeFocus('session',value);
+                globalThis.routes=[];
+                register('session',(command,native)=>{
+                    routes.push(native);
                     commands.push(command);
                     if(command===1) document.querySelector('#local').focus();
                     else {
@@ -59,8 +62,29 @@ async def run(output):
             await page.locator('#editor').focus(); await page.keyboard.press('Control+Alt+Home')
             assert await page.evaluate('commands.length') == 5 and await page.evaluate('ordinary') == 2
             checks.append('Ordinary Home navigation and modified keys in a real input field are not intercepted')
+            assert await page.evaluate('routes.every(value=>value===false)')
+            # Exercise the exact module against real canvas keyboard targets.
+            # Only the focus-publication input is supplied by this component
+            # fixture; the separate Uno test must establish native focus itself.
+            await page.evaluate("""() => {
+                const canvas=document.createElement('canvas');canvas.id='uno-canvas';canvas.tabIndex=0;
+                document.body.append(canvas);globalThis.nativeFocus(true);
+            }""")
+            canvas = page.locator('#uno-canvas')
+            await canvas.focus(); await page.keyboard.press('Control+Alt+Pause')
+            await page.wait_for_function('result === true && document.fullscreenElement === document.documentElement')
+            await canvas.focus(); await page.keyboard.press('Control+Alt+Pause')
+            await page.wait_for_function('result === false && document.fullscreenElement === null')
+            assert await page.evaluate('routes.slice(-2)') == [True, True]
+            assert await page.evaluate('ordinary') == 2
+            checks.append('Actual canvas keyboard events use registered native-focus fallback and real fullscreen entry/exit')
+            await page.locator('#local').focus(); await page.keyboard.press('Control+Alt+Home')
+            assert await page.evaluate('commands.length') == 7
+            await page.evaluate('nativeFocus(false)'); await canvas.focus(); await page.keyboard.press('Control+Alt+Home')
+            assert await page.evaluate('commands.length') == 7 and await page.evaluate('ordinary') == 4
+            checks.append('Local semantic controls reject stale fallback focus and clearing native ownership restores ordinary canvas keys')
             await surface.focus(); await page.evaluate('removeSession()'); await page.keyboard.press('Control+Alt+Home')
-            assert await page.evaluate('commands.length') == 5 and await page.evaluate('ordinary') == 3
+            assert await page.evaluate('commands.length') == 7 and await page.evaluate('ordinary') == 5
             checks.append('Unregistering the session removes its real key interception')
             assert not errors, errors
             for check in checks: print('PASS '+check, flush=True)

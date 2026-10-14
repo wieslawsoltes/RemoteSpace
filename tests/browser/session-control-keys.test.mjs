@@ -96,3 +96,60 @@ test('registration validates, stays bounded and removes global listeners after t
         api.register('again',()=>{});api.unregister('again');
     } finally {Object.assign(globalThis,old);}
 });
+
+test('native-focused canvas and document roots route only through registered fallback ownership',()=>{
+    const f=fixture();f.router.dispose();
+    const canvas={}, body={}, html={}, doc={body,documentElement:html,getElementById:id=>id==='uno-canvas'?canvas:null};
+    let focused;
+    f.registrations.set('first',(command,native)=>f.calls.push([command,native]));
+    const router=api.bind(f.root,f.host,f.registrations,()=>focused,doc);
+    assert.equal(f.fire('keydown',{composedPath:()=>[canvas,body,html]}).stopped,false);
+    focused='first';
+    for(const target of [canvas,body,html]){
+        assert.ok(f.fire('keydown',{composedPath:()=>[target]}).stopped);f.fire('keyup');
+    }
+    assert.deepEqual(f.calls,[[1,true],[1,true],[1,true]]);
+    assert.equal(f.fire('keydown',{composedPath:()=>[{tagName:'CANVAS'},body,html]}).stopped,false);
+    focused='removed';assert.equal(f.fire('keydown',{composedPath:()=>[canvas]}).stopped,false);router.dispose();
+});
+test('local semantic controls and text fields cannot borrow stale native fallback focus',()=>{
+    const f=fixture();f.router.dispose();const body={},html={},canvas={};
+    const router=api.bind(f.root,f.host,f.registrations,()=> 'first',{body,documentElement:html,getElementById:()=>canvas});
+    for(const path of [[{tagName:'BUTTON'},f.root,body],[{tagName:'INPUT'},body],[{isContentEditable:true},body],
+        [{getAttribute:()=> 'dialog'},body],[{tagName:'CANVAS'},body]])
+        assert.equal(f.fire('keydown',{composedPath:()=>path}).stopped,false);
+    assert.deepEqual(f.calls,[]);router.dispose();
+});
+test('semantic root created after registration routes peers without fallback and retains independent releases',()=>{
+    const f=fixture();f.router.dispose();let root;
+    f.registrations.set('first',(command,native)=>f.calls.push([command,native]));
+    const router=api.bind(()=>root,f.host,f.registrations);
+    assert.equal(f.fire('keydown').stopped,false);root=f.root;
+    assert.ok(f.fire('keydown').stopped);assert.deepEqual(f.calls,[[1,false]]);
+    root=undefined;assert.ok(f.fire('keyup').stopped);router.dispose();
+});
+test('ordinary input does not allocate a composed path or query native focus',()=>{
+    const f=fixture();f.router.dispose();const router=api.bind(f.root,f.host,f.registrations,()=>{throw Error('unexpected focus query');});
+    for(let i=0;i<100000;i++){
+        const e=f.fire('keydown',{code:'KeyA',composedPath:()=>{throw Error('unexpected path allocation');}});
+        assert.equal(e.stopped,false);
+    }router.dispose();
+});
+test('native focus registration clears only the current owner and supports canvas-only startup',()=>{
+    const f=fixture();f.router.dispose();const canvas={}, body={},html={};let root=null;
+    const old={document:globalThis.document,addEventListener:globalThis.addEventListener,removeEventListener:globalThis.removeEventListener};
+    Object.assign(globalThis,{document:{body,documentElement:html,getElementById:id=>id==='uno-canvas'?canvas:root},
+        addEventListener:f.host.addEventListener,removeEventListener:f.host.removeEventListener});
+    const canvasEvent={composedPath:()=>[canvas,body,html]};
+    try {
+        api.setNativeFocus('missing',true);api.register('first',(n,fallback)=>f.calls.push([n,fallback]));
+        api.register('second',(n,fallback)=>f.calls.push([n+10,fallback]));
+        api.setNativeFocus('first',true);assert.ok(f.fire('keydown',canvasEvent).stopped);f.fire('keyup');
+        api.setNativeFocus('second',true);api.setNativeFocus('first',false);
+        assert.ok(f.fire('keydown',canvasEvent).stopped);f.fire('keyup');
+        api.unregister('second');assert.equal(f.fire('keydown',canvasEvent).stopped,false);
+        root=f.root;assert.ok(f.fire('keydown').stopped);f.fire('keyup');
+        assert.deepEqual(f.calls,[[1,true],[11,true],[1,false]]);api.unregister('first');
+        assert.ok([...f.listeners.values()].every(set=>set.size===0));
+    } finally {api.unregister('first');api.unregister('second');Object.assign(globalThis,old);}
+});
