@@ -61,6 +61,12 @@ public sealed partial class MainPage
             var tab = new TabViewItem { Header = profile.Name, IsClosable = true };
             AutomationProperties.SetName(tab, profile.Name);
             var opened = new OpenSession(profile, session, view, tab, panel); pendingTab = opened;
+            if (session is IRemoteDisplayControl)
+            {
+                opened.Display = new SessionDisplayController(session, view);
+                opened.Display.Failed += ShowError;
+                opened.Display.AutomaticResolution = profile.UpdateResolutionOnResize;
+            }
             opened.ControlKeys = await SessionControlKeys.AttachAsync(App.MainWindow, this, view, (command, cancellationToken) =>
             {
                 if (opened.Closing || !_sessions.Contains(opened) || _section != "sessions" || Sessions.SelectedItem != opened.Tab || session.State != SessionState.Active)
@@ -73,19 +79,26 @@ public sealed partial class MainPage
                     : ToggleSessionFullscreenAsync(opened);
             }, ShowError);
             toolbar.AddCommand("Fit", "\uE9A6", () => { view.SetScale(null); view.Focus(FocusState.Programmatic); return Task.CompletedTask; });
-            AddDisplayControls(session, view, toolbar);
+            AddDisplayControls(session, view, toolbar, opened.Display);
             AddClipboardCommands(toolbar, opened);
             AddSessionActions(toolbar, opened);
             opened.FullScreenButton = toolbar.AddCommand("Full screen", "\uE740", () => ToggleSessionFullscreenAsync(opened));
             ToolTipService.SetToolTip(opened.FullScreenButton, "Full screen (Ctrl+Alt+Pause)");
             AutomationProperties.SetHelpText(view, "Remote keyboard and pointer input. Ctrl+Alt+Home shows local connection commands. Ctrl+Alt+Pause switches full screen. Move focus out to release held input.");
             var status = new SessionStatusCache();
+            bool? automaticStatus = null;
             void UpdateBar()
             {
-                if (status.Update(session.State, view.DesktopWidth, view.DesktopHeight, view.FitToWindow, view.Zoom))
-                    toolbar.Status = status.Text;
+                bool changed = status.Update(session.State, view.DesktopWidth, view.DesktopHeight, view.FitToWindow, view.Zoom);
+                bool automatic = opened.Display?.AutomaticResolution == true;
+                if (changed || automatic != automaticStatus)
+                {
+                    automaticStatus = automatic;
+                    toolbar.Status = automatic ? status.Text + " · Auto" : status.Text;
+                }
             }
             view.ViewChanged += UpdateBar;
+            if (opened.Display is { } displayController) displayController.Changed += UpdateBar;
             if (session is IRemoteGraphicsOutput output)
                 output.OutputEnabledChanged += enabled => DispatcherQueue.TryEnqueue(() => { if (_sessions.Contains(opened)) view.IsEnabled = enabled; });
             view.InputError += ShowError;
@@ -119,6 +132,7 @@ public sealed partial class MainPage
             {
                 if (pendingTab is not null || pendingView is not null || pendingSession is not null)
                     await AsyncCleanupSequence.RunAsync(
+                        () => pendingTab?.Display?.DisposeAsync() ?? ValueTask.CompletedTask,
                         () => { pendingTab?.ControlKeys?.Dispose(); return ValueTask.CompletedTask; },
                         () =>
                         {
@@ -160,6 +174,7 @@ public sealed partial class MainPage
             if (opened.Session.State == SessionState.Active && !await Confirm("Disconnect session", "Disconnect from " + opened.Profile.Name + "? Programs running on the remote PC are not closed.", "Disconnect")) return;
             cleanupStarted = true;
             await AsyncCleanupSequence.RunAsync(
+                () => opened.Display?.DisposeAsync() ?? ValueTask.CompletedTask,
                 () => { opened.ControlKeys?.Dispose(); return ValueTask.CompletedTask; },
                 () => new ValueTask(ExitSessionFullscreenAsync(opened)),
                 () => new ValueTask(opened.View.AttachAsync(null)),
@@ -204,6 +219,7 @@ public sealed partial class MainPage
     {
         public ConnectionProfile Profile { get; } = profile;
         public IRemoteSession Session { get; } = session;
+        public SessionDisplayController? Display { get; set; }
         public RemoteDesktopView View { get; } = view;
         public TabViewItem Tab { get; set; } = tab;
         public SessionToolbarPresenter Panel { get; } = panel;

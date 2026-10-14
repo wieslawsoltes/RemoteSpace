@@ -103,7 +103,7 @@ public sealed partial class MainPage
         {
             var editor = new ProfileEditor(original); var error = new ValidationMessage();
             var content = new StackPanel { Spacing = 12 }; content.Children.Add(error); content.Children.Add(editor);
-            var dialog = new ContentDialog { Title = original is null ? "Add a PC" : "Edit PC", Content = content, PrimaryButtonText = original is null ? "Add" : "Save", SecondaryButtonText = original is null ? "Add & connect" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot };
+            var dialog = new SettingsContentDialog { Title = original is null ? "Add a PC" : "Edit PC", Content = content, PrimaryButtonText = original is null ? "Add" : "Save", SecondaryButtonText = original is null ? "Add & connect" : "", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, XamlRoot = XamlRoot };
             ConnectionProfile? result = null;
             void Validate(ContentDialog sender, ContentDialogButtonClickEventArgs e)
             {

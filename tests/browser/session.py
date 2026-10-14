@@ -18,7 +18,8 @@ import urllib.request
 from playwright.async_api import async_playwright, expect
 from driver import boot, command, edit, navigate, focus_command
 from clipboard import round_trip
-from saved_display import fixed_local_zoom
+from saved_display import fixed_local_zoom, settings_section
+from automatic_resolution import validate_automatic_resolution
 from graphics_output import validate_output_controls
 from session_display import validate_session_display
 from input_events import validate_extended_input
@@ -70,6 +71,7 @@ async def run(site, output):
                 if msg.get('Type') in ('state','diagnostic','error','display','input-capabilities'):
                     metrics['server_controls'].append(msg)
                 if msg.get('Type')=='state' and msg.get('State')==6: active.set()
+                if msg.get('Type')=='graphics-state': metrics['output_enabled'] = msg.get('OutputEnabled')
                 if msg.get('Type')=='size':
                     metrics['sizes'].append([msg.get('Width'),msg.get('Height')])
                     if metrics['sizes'][-1]==[1024,768]: resized.set()
@@ -124,6 +126,7 @@ async def run(site, output):
                 await edit(page,'Certificate SHA-256 pin (optional)',pin)
                 await page.get_by_role('checkbox',name='Allow text clipboard redirection (opt-in)',exact=True).press('Space')
                 await fixed_local_zoom(page)
+                await settings_section(page, 'General')
                 security=page.get_by_role('combobox',name='Connection security',exact=True)
                 # Change selection while closed. Enter in a ContentDialog can
                 # submit its default Save command rather than open this peer.
@@ -194,6 +197,7 @@ async def run(site, output):
                 await round_trip(page, origin, passed)
                 await validate_session_display(page, metrics, output, passed)
                 await validate_output_controls(page, metrics, output, passed)
+                await validate_automatic_resolution(page, metrics, output, passed)
                 # TabView's built-in close button is deliberately not a tab stop.
                 # Its semantic HTML proxy cannot focus the native button on Enter;
                 # exercise the actual canvas mouse hit instead.

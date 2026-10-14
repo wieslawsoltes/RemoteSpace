@@ -63,6 +63,7 @@ internal sealed class WorkspaceReadProfile
     public bool RedirectClipboard { get; set; }
     public bool FitSessionToWindow { get; set; } = true;
     public double LocalZoom { get; set; } = 1;
+    public bool UpdateResolutionOnResize { get; set; }
     public ConnectionProfile ToProfile()
     {
         if (Name is null || Group is null || Host is null || UserName is null || Domain is null)
@@ -72,7 +73,8 @@ internal sealed class WorkspaceReadProfile
             Id = Id, Name = Name, Group = Group, Host = Host, Port = Port, UserName = UserName,
             Domain = Domain, Favorite = Favorite, Width = Width, Height = Height,
             BitsPerPixel = BitsPerPixel, Security = Security, CertificateSha256 = CertificateSha256,
-            RedirectClipboard = RedirectClipboard, FitSessionToWindow = FitSessionToWindow, LocalZoom = LocalZoom
+            RedirectClipboard = RedirectClipboard, FitSessionToWindow = FitSessionToWindow, LocalZoom = LocalZoom,
+            UpdateResolutionOnResize = UpdateResolutionOnResize
         };
     }
 }

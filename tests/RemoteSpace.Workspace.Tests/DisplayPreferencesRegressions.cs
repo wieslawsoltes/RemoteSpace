@@ -59,8 +59,8 @@ internal static class DisplayPreferencesRegressions
         Check(!RdpFile.Parse("full address:s:pc.test.invalid").Profile.FitSessionToWindow, "omitted RDP smart sizing uses the documented disabled default");
         foreach (string setting in new[] { "smart sizing:i:2", "smart sizing:i:-1", "smart sizing:s:1", "smart sizing:i:1\0", "desktopwidth:i:1280\0" })
             Reject(() => RdpFile.Parse("full address:s:pc.test.invalid\n" + setting), "malformed typed RDP preference rejected");
-        var unsupported = RdpFile.Parse("full address:s:pc.test.invalid\ndesktopscalefactor:i:150\ndynamic resolution:i:1");
-        Check(unsupported.Warnings.Count == 2 && unsupported.Profile.LocalZoom == 1, "unsupported DPI and automatic-resolution flags are not silently applied as local scaling");
+        var unsupported = RdpFile.Parse("full address:s:pc.test.invalid\ndesktopscalefactor:i:150");
+        Check(unsupported.Warnings.Count == 1 && unsupported.Profile.LocalZoom == 1, "unsupported DPI is not silently applied as local scaling");
         var fixedScale = profile with { FitSessionToWindow = false, LocalZoom = 1.5 };
         // Warm the exact non-tiered measurement kernel, not just ten calls in
         // this long test method (whose on-stack replacement can add runtime noise).

@@ -78,3 +78,5 @@ SessionStatusTests.Run();
 ConnectionToolbarTests.Run();
 
 SessionControlShortcutTests.Run();
+
+AutomaticResizeTests.RunAsync().GetAwaiter().GetResult();
