@@ -29,6 +29,13 @@ public sealed partial class SessionCommandBar : UserControl
             CommandHost.ShowPanel(null);
         };
     }
+    /// <summary>Bring the first visible local command into keyboard focus.</summary>
+    public Task FocusCommandsAsync(CancellationToken cancellationToken = default, Button? excludedCommand = null)
+    {
+        var first = _commands.Children.OfType<Button>().FirstOrDefault(button => !ReferenceEquals(button, excludedCommand) && button.IsEnabled && button.Visibility == Visibility.Visible)
+            ?? throw new InvalidOperationException("No session commands are available.");
+        return ControlFocus.WhenReadyAsync(first, this, cancellationToken);
+    }
     public Button AddCommand(string name, string glyph, Func<Task> execute)
     {
         var button = MakeButton(name, glyph); bool busy = false;

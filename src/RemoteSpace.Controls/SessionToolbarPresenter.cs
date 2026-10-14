@@ -21,6 +21,7 @@ public sealed class SessionToolbarPresenter : Grid
     };
     private readonly Grid _toolbarPanel = new(), _revealPanel = new();
     private readonly FrameworkElement _desktop;
+    private readonly SessionCommandBar _toolbar;
     private readonly Button _collapse;
     private Button? _expand;
     private CancellationTokenSource? _pending;
@@ -34,7 +35,7 @@ public sealed class SessionToolbarPresenter : Grid
         ArgumentNullException.ThrowIfNull(desktop);
         if (toolbar.Parent is not null || desktop.Parent is not null)
             throw new ArgumentException("The toolbar and desktop must not already have visual parents.");
-        _desktop = desktop;
+        _desktop = desktop; _toolbar = toolbar;
         _toolbarPanel.Children.Add(toolbar);
         RowDefinitions.Add(new() { Height = GridLength.Auto });
         RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -56,6 +57,15 @@ public sealed class SessionToolbarPresenter : Grid
             ApplyState();
         };
         Unloaded += (_, _) => _pending?.Cancel();
+    }
+
+    /// <summary>Reveal and focus local commands without changing the session.</summary>
+    public async Task ShowCommandsAsync(CancellationToken cancellationToken = default)
+    {
+        VerifyAccess(); cancellationToken.ThrowIfCancellationRequested();
+        if (_state.IsCollapsed) await SetCollapsedAsync(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_state.IsCollapsed) await _toolbar.FocusCommandsAsync(cancellationToken, _collapse);
     }
 
     public void SetFullscreen(bool value)
@@ -144,7 +154,7 @@ public sealed class SessionToolbarPresenter : Grid
         AutomationProperties.SetName(_expand, "Expand connection toolbar");
         AutomationProperties.SetHelpText(_expand, "Show the session commands. The remote desktop stays connected.");
         AutomationProperties.SetAutomationId(_expand, "remotespace-session-command-" + Guid.NewGuid().ToString("N"));
-        ToolTipService.SetToolTip(_expand, "Expand connection toolbar");
+        ToolTipService.SetToolTip(_expand, "Expand connection toolbar (Ctrl+Alt+Home)");
         _expand.Click += async (_, _) =>
         {
             try { await SetCollapsedAsync(false); }
