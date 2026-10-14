@@ -104,3 +104,26 @@ attaches the retained hierarchy under a live semantic geometry owner on Loaded.
 Unloading removes it cleanly. The click regression still uses the actual native
 tab and additionally requires an in-window hit target; it does not substitute
 keyboard selection, guessed canvas coordinates or modified DOM geometry.
+
+
+## Native dialog and tab geometry
+
+The settings selector uses a directly owned native tab strip rather than a
+virtualized TabView. Selection patterns, one selected tab, roving keyboard focus,
+Left/Right wrapping and Home/End navigation accompany the retained lazy pages.
+
+`SettingsContentDialog` retains the standard ContentDialog theme, modal lifetime,
+validation and command handling. It gives the pinned Fluent template's centred
+`BackgroundElement` a named structural accessibility boundary. That surface is
+what moves when lazy content changes the dialog height; a boundary inside the
+editor alone cannot propagate the ancestor's recentering offset. The editor also
+owns its scrolled body and expansion inset. Additional fields are realized only
+when their actual ContentPresenter has loaded, not merely when Expanding fires.
+These are native visual-tree/accessibility operations, not DOM-coordinate writes
+or per-frame reconstruction.
+
+The browser test scrolls the actual form upward with a mouse wheel gesture before
+clicking its tab. Lower General fields can have scrolled the header out of the
+native viewport; moving an invisible DOM proxy is not equivalent to scrolling
+Uno. It requires tab ancestry beneath the named dialog surface and rejects clipped
+or out-of-window bounds before the original native click/selected-state assertion.

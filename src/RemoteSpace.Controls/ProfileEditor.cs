@@ -43,13 +43,14 @@ public sealed class ProfileEditor : UserControl
         // registers their semantic peers before they ever enter the visual tree.
         // Editing expands after the actual parent is loaded; a minimal new-PC
         // dialog allocates no additional inputs and creates no hidden peers.
-        Loaded += (_, _) =>
+        _layout.Loaded += (_, _) => AutomationProperties.SetName(_layout, "PC profile editor layout");
+        _scrolledBody.Loaded += (_, _) =>
         {
-            AutomationProperties.SetName(_layout, "PC profile editor layout");
             AutomationProperties.SetName(_scrolledBody, "Scrollable PC settings");
             _scrolledBody.ShowPanel(body);
             if (profile is not null) _expansion.IsExpanded = true;
         };
+        _additional.Loaded += (_, _) => RealizeAdditionalSettings();
         Unloaded += (_, _) => _scrolledBody.ShowPanel(null);
     }
 
@@ -58,10 +59,19 @@ public sealed class ProfileEditor : UserControl
         if (_panel is not null) return;
         _panel = new StackPanel { Spacing = 12 };
         _expansion.Content = _additional;
+        if (_additional.IsLoaded) RealizeAdditionalSettings();
+    }
+
+    private void RealizeAdditionalSettings()
+    {
+        if (_panel is null) return;
+        // Expanding fires before the ContentPresenter enters the live tree.
+        // Naming/realizing here avoids registering its inputs at a fallback root.
         AutomationProperties.SetName(_additional, "Additional PC settings");
         _additional.ShowPanel(_panel);
         _fields ??= new AdditionalFields(_original);
-        foreach (var field in _fields.Controls) _panel.Children.Add(field);
+        if (_panel.Children.Count == 0)
+            foreach (var field in _fields.Controls) _panel.Children.Add(field);
     }
 
     private void HideAdditionalSettings()

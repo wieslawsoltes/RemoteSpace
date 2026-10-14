@@ -4,6 +4,16 @@ from playwright.async_api import expect
 from driver import boot, command, focus_command, navigate
 
 async def settings_section(page, name):
+    # Editing a lower General field can scroll the native form past its tabs.
+    # Scroll the real painted editor to the start with a user wheel gesture;
+    # scrolling its invisible DOM proxy does not move Uno's ScrollViewer.
+    surface = page.get_by_label('PC settings dialog surface', exact=True)
+    editor = surface.get_by_label('PC profile editor layout', exact=True)
+    await expect(editor).to_be_visible()
+    area = await editor.bounding_box()
+    await page.mouse.move(area['x'] + area['width'] / 2, area['y'] + area['height'] / 2)
+    await page.mouse.wheel(0, -2000)
+    await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     strip = page.get_by_role('tablist', name='PC settings sections', exact=True)
     await expect(strip).to_be_visible()
     tab = strip.get_by_role('tab', name=name, exact=True)
@@ -13,6 +23,9 @@ async def settings_section(page, name):
     viewport = page.viewport_size
     if not bounds or bounds['x'] < 0 or bounds['y'] < 0 or bounds['x'] + bounds['width'] > viewport['width'] or bounds['y'] + bounds['height'] > viewport['height']:
         raise AssertionError('A visibly painted settings tab has an out-of-window semantic hit target.')
+    area = await editor.bounding_box()
+    if bounds['y'] < area['y'] or bounds['y'] + bounds['height'] > area['y'] + area['height']:
+        raise AssertionError('The settings tab is clipped outside the native editor viewport.')
     await tab.click(force=True)
     await expect(tab).to_have_attribute('aria-selected', 'true')
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
