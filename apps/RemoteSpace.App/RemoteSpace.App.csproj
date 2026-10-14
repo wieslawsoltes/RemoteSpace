@@ -21,7 +21,10 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
     <ProjectReference Include="../../src/RemoteSpace.Client/RemoteSpace.Client.csproj" />
-    <!-- Override affected transitive desktop-host dependencies; do not suppress audit. -->
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Restore audits every target graph, even when building one framework.
+         Select patched versions in every graph; never suppress audit findings. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.13" />
   </ItemGroup>

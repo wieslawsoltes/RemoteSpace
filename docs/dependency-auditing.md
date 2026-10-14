@@ -20,10 +20,13 @@ graph. NuGet reported the following Microsoft advisories, published 2026-10-13:
   [GHSA-r955-8q5j-3h83](https://github.com/advisories/GHSA-r955-8q5j-3h83).
 
 Microsoft identifies 10.0.13 as the patched .NET 10 package version. Explicit
-references in the desktop target select that patch rather than the older
-transitive versions. The browser target does not gain new direct desktop crypto
-dependencies. Auditing remains enabled for both targets; the build must confirm
-successful restore and compilation with the patched dependency graph.
+references for both application targets select that patch rather than the older
+transitive versions. A multi-target restore audits every restored graph even
+when a command builds only the desktop framework. Desktop-only overrides left
+an older version eligible in another restored graph, so the overrides now apply
+to both targets. This does not enable new cryptographic operations in the browser.
+Auditing remains enabled; both target builds must restore without vulnerability
+findings and pass the full runtime suites.
 
 A clean package audit does not update the runtime on a deployed machine. Keep
 the host .NET runtime and SDK serviced too, and rebuild/redeploy self-contained
