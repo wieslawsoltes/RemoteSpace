@@ -41,6 +41,8 @@ public static class RemoteDisplayRequest
         try
         {
             await SessionReadiness.WaitForActiveAsync(session, stop.Token).ConfigureAwait(false);
+            stop.Token.ThrowIfCancellationRequested();
+            DisplayLayout.Validate([monitor], display.DisplayCapabilities ?? throw new InvalidOperationException("Remote resolution is no longer available."));
             lock (gate) sending = true;
             await display.RequestDisplayLayoutAsync([monitor], stop.Token).ConfigureAwait(false);
             await confirmed.Task.WaitAsync(stop.Token).ConfigureAwait(false);

@@ -85,6 +85,26 @@ internal static class AutomaticResizeTests
         try { await RemoteDisplayRequest.ApplyAsync(fake, fake, new(0,0,1600,900), TimeSpan.FromSeconds(1)); throw new Exception("Send failure ignored"); }
         catch (IOException) { checks++; }
         Check(fake.Subscriptions == 0, "send failure unsubscribes");
+        int sends = 0;
+        fake.Send = _ => { sends++; return ValueTask.CompletedTask; };
+        using var stopped = new CancellationTokenSource(); stopped.Cancel();
+        try { await RemoteDisplayRequest.ApplyAsync(fake, fake, new(0,0,1600,900), TimeSpan.FromSeconds(1), stopped.Token); throw new Exception("Pre-cancel ignored"); }
+        catch (OperationCanceledException) { Check(sends == 0 && fake.Subscriptions == 0, "pre-cancelled request installs no listeners and sends nothing"); }
+        foreach (var invalidCaps in new DisplayCapabilities?[] { null, new(1, 1000), new(0, DisplayLayout.MaximumArea) })
+        {
+            fake.DisplayCapabilities = caps; fake.ChangeState(SessionState.Establishing);
+            waiting = RemoteDisplayRequest.ApplyAsync(fake, fake, new(0,0,1600,900), TimeSpan.FromSeconds(1));
+            Check(!waiting.IsCompleted, "request waits for the current reactivation");
+            fake.DisplayCapabilities = invalidCaps; fake.ChangeState(SessionState.Active);
+            bool rejected = false;
+            try { await waiting; }
+            catch (Exception error) when (error is ArgumentException or InvalidOperationException) { rejected = true; }
+            Check(rejected && sends == 0 && fake.Subscriptions == 0, "changed capabilities revalidated after readiness before any wire request");
+        }
+        fake.DisplayCapabilities = caps; fake.ChangeState(SessionState.Establishing);
+        try { await RemoteDisplayRequest.ApplyAsync(fake, fake, new(0,0,1600,900), TimeSpan.FromMilliseconds(20)); throw new Exception("Readiness timeout ignored"); }
+        catch (TimeoutException) { Check(sends == 0 && fake.Subscriptions == 0, "deadline includes readiness and removes all subscriptions"); }
+        fake.ChangeState(SessionState.Active);
         Console.WriteLine($"PASS {checks} automatic-resize planning/confirmation regressions; 100000 unchanged offers allocated {allocated} bytes.");
     }
 
@@ -102,7 +122,7 @@ internal static class AutomaticResizeTests
         private Action<DesktopSize>? _size;
         public int Subscriptions => (_state?.GetInvocationList().Length ?? 0) + (_size?.GetInvocationList().Length ?? 0);
         public SessionState State { get; private set; } = SessionState.Active;
-        public DisplayCapabilities? DisplayCapabilities => new(1, DisplayLayout.MaximumArea);
+        public DisplayCapabilities? DisplayCapabilities { get; set; } = new(1, DisplayLayout.MaximumArea);
         public Func<DisplayMonitor,ValueTask> Send { get; set; } = _ => ValueTask.CompletedTask;
         public event Action<SessionState>? StateChanged { add => _state += value; remove => _state -= value; }
         public event Action<DesktopSize>? DesktopResized { add => _size += value; remove => _size -= value; }

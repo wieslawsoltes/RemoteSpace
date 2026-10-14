@@ -4,7 +4,9 @@ from playwright.async_api import expect
 from driver import boot, command, focus_command, navigate
 
 async def settings_section(page, name):
-    tab = page.get_by_role('tab', name=name, exact=True)
+    strip = page.get_by_role('tablist', name='PC settings sections', exact=True)
+    await expect(strip).to_be_visible()
+    tab = strip.get_by_role('tab', name=name, exact=True)
     await expect(tab).to_be_visible(timeout=15000)
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     bounds = await tab.bounding_box()
@@ -12,6 +14,7 @@ async def settings_section(page, name):
     if not bounds or bounds['x'] < 0 or bounds['y'] < 0 or bounds['x'] + bounds['width'] > viewport['width'] or bounds['y'] + bounds['height'] > viewport['height']:
         raise AssertionError('A visibly painted settings tab has an out-of-window semantic hit target.')
     await tab.click(force=True)
+    await expect(tab).to_have_attribute('aria-selected', 'true')
     await page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
 
 async def fixed_local_zoom(page):
@@ -52,6 +55,18 @@ async def validate_saved_display_settings(page, output, passed):
         return next(d['Profile'] for d in json.loads(path.read_text())['Devices'] if d['Profile']['Name'] == name)
 
     await edit_profile()
+    # Native tab keyboard navigation must retain a single selected section and
+    # remove inactive editors, not just move a visible accent underline.
+    display_tab = page.get_by_role('tab', name='Display', exact=True)
+    await display_tab.press('Home')
+    await expect(page.get_by_role('tab', name='General', exact=True)).to_have_attribute('aria-selected', 'true')
+    await expect(page.get_by_role('checkbox', name='Fit session to window', exact=True)).to_have_count(0)
+    await page.get_by_role('tab', name='General', exact=True).press('End')
+    await expect(display_tab).to_have_attribute('aria-selected', 'true')
+    await display_tab.press('ArrowRight')
+    await expect(page.get_by_role('tab', name='General', exact=True)).to_have_attribute('aria-selected', 'true')
+    await page.get_by_role('tab', name='General', exact=True).press('ArrowLeft')
+    await expect(display_tab).to_have_attribute('aria-selected', 'true')
     await fixed_local_zoom(page)
     await page.screenshot(path=str(output / '10-per-pc-display.png'))
     await settings_section(page, 'General')

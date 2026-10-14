@@ -3,9 +3,9 @@ using RemoteSpace.Core;
 
 namespace RemoteSpace.Controls;
 
-/// <summary>Reusable UI-thread display coordinator. Uses the full view's layout
-/// size (not its zoom/scrollbar-reduced canvas) to avoid resize feedback loops.
-/// The host owns the session and disposes this coordinator before the view.</summary>
+/// <summary>UI-thread display coordinator. Keeps one automatic and at most one
+/// waiting manual request. It observes the whole view, not the scrollbar-reduced
+/// canvas, and drains both operation owners before disposing their lifetime.</summary>
 public sealed class SessionDisplayController : IAsyncDisposable
 {
     private readonly IRemoteSession _session;
@@ -14,11 +14,10 @@ public sealed class SessionDisplayController : IAsyncDisposable
     private readonly DisplayResizeQueue _queue = new();
     private readonly DispatcherTimer _timer = new();
     private readonly CancellationTokenSource _stop = new();
-    private readonly SemaphoreSlim _writer = new(1, 1);
-    private Task _automaticOperation = Task.CompletedTask;
+    private Task _automaticOperation = Task.CompletedTask, _manualOperation = Task.CompletedTask;
     private Task? _disposal;
     private bool _disposed;
-    private int _manualRequests;
+    private int _refreshQueued;
     private static readonly TimeSpan ConfirmationTimeout = TimeSpan.FromSeconds(10);
     public event Action? Changed;
     public event Action<string>? Failed;
@@ -45,18 +44,26 @@ public sealed class SessionDisplayController : IAsyncDisposable
         _timer.Tick += Tick;
         view.SizeChanged += SizeChanged; view.Loaded += VisibilityChanged; view.Unloaded += VisibilityChanged;
         view.PresentationActivityChanged += Refresh;
-        session.StateChanged += SessionStateChanged;
-        session.DesktopResized += DesktopResized;
+        session.StateChanged += SessionStateChanged; session.DesktopResized += DesktopResized;
         _display.DisplayCapabilitiesChanged += CapabilitiesChanged;
         if (session is IRemoteGraphicsOutput output) output.OutputEnabledChanged += OutputChanged;
         Refresh();
     }
-
     private void VerifyAccess()
     {
         if (!_view.DispatcherQueue.HasThreadAccess) throw new InvalidOperationException("Display coordination requires the view's UI thread.");
     }
-    private void QueueRefresh() => _view.DispatcherQueue.TryEnqueue(() => { if (!_disposed) Refresh(); });
+    private void QueueRefresh()
+    {
+        // Server notifications can arrive on a worker. Retain at most one UI
+        // callback; that callback reads current state rather than replaying it.
+        if (Interlocked.Exchange(ref _refreshQueued, 1) != 0) return;
+        if (!_view.DispatcherQueue.TryEnqueue(() =>
+        {
+            Interlocked.Exchange(ref _refreshQueued, 0);
+            if (!_disposed) Refresh();
+        })) Interlocked.Exchange(ref _refreshQueued, 0);
+    }
     private void SessionStateChanged(SessionState state) => QueueRefresh();
     private void DesktopResized(DesktopSize size) => QueueRefresh();
     private void CapabilitiesChanged(DisplayCapabilities? caps) => QueueRefresh();
@@ -69,42 +76,42 @@ public sealed class SessionDisplayController : IAsyncDisposable
         if (_disposed) return;
         _timer.Stop();
         long now = Environment.TickCount64;
-        bool available = _manualRequests == 0 && _view.IsLoaded && _view.IsPresentationActive &&
+        bool available = _manualOperation.IsCompleted && _view.IsLoaded && _view.IsPresentationActive &&
             _session.State == SessionState.Active && _display.DisplayCapabilities is not null &&
             (_session is not IRemoteGraphicsOutput output || output.OutputEnabled);
         _queue.SetAvailable(available, now);
         _queue.Offer(_view.ActualWidth, _view.ActualHeight, _display.DisplayCapabilities, now);
         if (_queue.DelayMilliseconds(now, _view.DesktopWidth, _view.DesktopHeight) is { } delay)
         {
-            _timer.Interval = TimeSpan.FromMilliseconds(delay);
-            _timer.Start();
+            _timer.Interval = TimeSpan.FromMilliseconds(delay); _timer.Start();
         }
     }
-
     private void Tick(object? sender, object e)
     {
-        _timer.Stop();
-        Refresh(); // Recheck visibility, capabilities and actual dimensions at send time.
+        _timer.Stop(); Refresh();
         if (!_disposed && _queue.TryBegin(Environment.TickCount64, _view.DesktopWidth, _view.DesktopHeight, out var request))
         {
             _timer.Stop();
-            _automaticOperation = ApplyAutomaticAsync(request);
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _automaticOperation = completion.Task; // Publish before any reentrant callback.
+            _ = ApplyAutomaticAsync(request, completion);
         }
     }
-    private async Task ApplyAutomaticAsync(DisplayResizeRequest request)
+    private async Task ApplyAutomaticAsync(DisplayResizeRequest request, TaskCompletionSource completion)
     {
-        bool confirmed = false;
-        string? failure = null;
+        bool confirmed = false; string? failure = null;
         try
         {
-            await ApplySerializedAsync(new(0, 0, request.Target.Width, request.Target.Height), _stop.Token);
+            await ApplyAsync(new(0, 0, request.Target.Width, request.Target.Height), _stop.Token);
             confirmed = true;
         }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
-        catch (Exception e) { failure = "Automatic resolution stopped: " + e.Message; }
+        catch (Exception error) { failure = "Automatic resolution stopped: " + error.Message; }
         finally
         {
             _queue.Complete(request.Ticket, confirmed, Environment.TickCount64);
+            // Publish completion before scheduling the next latest target.
+            completion.TrySetResult();
             if (!_disposed)
             {
                 Refresh(); Changed?.Invoke();
@@ -113,54 +120,96 @@ public sealed class SessionDisplayController : IAsyncDisposable
         }
     }
 
-    /// <summary>A manual resolution supersedes automatic mode, waits behind any
-    /// in-flight confirmation, and shares the same writer and lifecycle token.</summary>
-    public async Task RequestResolutionAsync(DisplayMonitor monitor, CancellationToken cancellationToken = default)
+    /// <summary>Reserve one manual command before changing automatic mode. A
+    /// pre-cancelled/invalid/duplicate request has no presentation side effects.
+    /// The accepted command drains an already-started automatic request first.</summary>
+    public Task RequestResolutionAsync(DisplayMonitor monitor, CancellationToken cancellationToken = default)
     {
         VerifyAccess(); ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(monitor);
+        ArgumentNullException.ThrowIfNull(monitor); cancellationToken.ThrowIfCancellationRequested();
         DisplayLayout.Validate([monitor], _display.DisplayCapabilities ?? throw new InvalidOperationException("Remote resolution is not available."));
-        AutomaticResolution = false;
-        _manualRequests++;
-        Refresh();
-        using var stop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, cancellationToken);
+        if (!_manualOperation.IsCompleted) throw new InvalidOperationException("A manual resolution request is already pending.");
+        var stop = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token, cancellationToken);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _manualOperation = completion.Task;
+        _ = ApplyManualAsync(monitor, stop, _automaticOperation, completion);
+        return completion.Task;
+    }
+    private async Task ApplyManualAsync(DisplayMonitor monitor, CancellationTokenSource stop, Task automatic, TaskCompletionSource completion)
+    {
+        Exception? failure = null;
         try
         {
-            await ApplySerializedAsync(monitor, stop.Token);
+            _queue.SetEnabled(false, Environment.TickCount64);
+            Refresh(); Changed?.Invoke();
+            await automatic.WaitAsync(stop.Token);
+            await ApplyAsync(monitor, stop.Token);
             if (!_disposed) _view.SetScale(null);
         }
-        finally { _manualRequests--; Refresh(); }
+        catch (Exception error) { failure = error; }
+        finally
+        {
+            stop.Dispose();
+            if (failure is OperationCanceledException cancelled) completion.TrySetCanceled(cancelled.CancellationToken);
+            else if (failure is not null) completion.TrySetException(failure);
+            else completion.TrySetResult();
+            if (!_disposed) Refresh();
+        }
     }
-    private async Task ApplySerializedAsync(DisplayMonitor monitor, CancellationToken ct)
+    private async Task ApplyAsync(DisplayMonitor monitor, CancellationToken ct)
     {
-        await _writer.WaitAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(ConfirmationTimeout);
         try
         {
-            ct.ThrowIfCancellationRequested();
+            await SessionReadiness.WaitForActiveAsync(_session, deadline.Token);
+            deadline.Token.ThrowIfCancellationRequested();
+            DisplayLayout.Validate([monitor], _display.DisplayCapabilities ?? throw new InvalidOperationException("Remote resolution is no longer available."));
             if (_view.DesktopWidth == monitor.Width && _view.DesktopHeight == monitor.Height) return;
-            await _view.ReleaseHeldInputAsync(ct);
-            ct.ThrowIfCancellationRequested();
-            await RemoteDisplayRequest.ApplyAsync(_session, _display, monitor, ConfirmationTimeout, ct);
+            await _view.ReleaseHeldInputAsync(deadline.Token);
+            deadline.Token.ThrowIfCancellationRequested();
+            await RemoteDisplayRequest.ApplyAsync(_session, _display, monitor, ConfirmationTimeout, deadline.Token);
         }
-        finally { _writer.Release(); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && deadline.IsCancellationRequested)
+        {
+            throw new TimeoutException("The remote resolution request did not complete before its deadline.");
+        }
     }
 
     public ValueTask DisposeAsync()
     {
         VerifyAccess();
-        return new(_disposal ??= DisposeCoreAsync());
+        if (_disposal is not null) return new(_disposal);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _disposal = completion.Task; _disposed = true;
+        _ = DisposeCoreAsync(completion);
+        return new(completion.Task);
     }
-    private async Task DisposeCoreAsync()
+    private async Task DisposeCoreAsync(TaskCompletionSource completion)
     {
-        _disposed = true; _timer.Stop(); _stop.Cancel();
-        _timer.Tick -= Tick;
-        _view.SizeChanged -= SizeChanged; _view.Loaded -= VisibilityChanged; _view.Unloaded -= VisibilityChanged;
-        _view.PresentationActivityChanged -= Refresh;
-        _session.StateChanged -= SessionStateChanged; _session.DesktopResized -= DesktopResized;
-        _display.DisplayCapabilitiesChanged -= CapabilitiesChanged;
-        if (_session is IRemoteGraphicsOutput output) output.OutputEnabledChanged -= OutputChanged;
-        await _automaticOperation;
-        await _writer.WaitAsync(); // Drain an already executing manual request before disposal.
-        _writer.Release(); _writer.Dispose(); _stop.Dispose();
+        Exception? failure = null;
+        try
+        {
+            _timer.Stop(); _timer.Tick -= Tick;
+            _view.SizeChanged -= SizeChanged; _view.Loaded -= VisibilityChanged; _view.Unloaded -= VisibilityChanged;
+            _view.PresentationActivityChanged -= Refresh;
+            _session.StateChanged -= SessionStateChanged; _session.DesktopResized -= DesktopResized;
+            _display.DisplayCapabilitiesChanged -= CapabilitiesChanged;
+            if (_session is IRemoteGraphicsOutput output) output.OutputEnabledChanged -= OutputChanged;
+            Changed = null; Failed = null;
+            await AsyncCleanupSequence.RunAsync(
+                () => { _stop.Cancel(); return ValueTask.CompletedTask; },
+                async () =>
+                {
+                    // Initiators observe their request failures. Teardown owns
+                    // completion, not a second delivery of cancellation/errors.
+                    try { await Task.WhenAll(_automaticOperation, _manualOperation); }
+                    catch { }
+                });
+        }
+        catch (Exception error) { failure = error; }
+        finally { _stop.Dispose(); }
+        if (failure is not null) completion.TrySetException(failure); else completion.TrySetResult();
     }
 }
