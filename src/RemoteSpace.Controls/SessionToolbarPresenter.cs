@@ -90,7 +90,8 @@ public sealed class SessionToolbarPresenter : Grid
             ApplyState();
             // Local focus remains reachable after either command. It never
             // moves to the remote view as part of a toolbar-only interaction.
-            (value ? _expand : _collapse)?.Focus(FocusState.Programmatic);
+            if ((value ? _expand : _collapse) is { } target)
+                await ControlFocus.WhenReadyAsync(target, this, pending.Token);
         }
         catch (OperationCanceledException) when (pending.IsCancellationRequested || !IsLoaded) { }
         finally { if (ReferenceEquals(_pending, pending)) _pending = null; }
